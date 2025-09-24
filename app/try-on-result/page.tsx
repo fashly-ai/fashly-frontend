@@ -100,26 +100,28 @@ export default function TryOnResult() {
       </div>
 
       {/* Bottom Navigation */}
-      <div className="bg-white border-t border-gray-200 p-1.5 sm:p-2 flex-shrink-0">
-        <div className="flex justify-between items-center max-w-sm mx-auto">
-          {/* Try On - Active */}
-          <button className="flex flex-col items-center space-y-1 px-2 sm:px-3 py-1">
-            <div className="w-5 h-5 sm:w-6 sm:h-6 bg-gray-800 rounded-lg flex items-center justify-center">
-              <svg className="w-3 h-3 sm:w-4 sm:h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
-              </svg>
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-2">
+        <div className="flex w-full">
+          {/* Try On - Left Half */}
+          <button className="flex-1 flex flex-col items-center justify-center space-y-1 py-2">
+            <div className="w-6 h-6 bg-gray-800 rounded-lg flex items-center justify-center">
+              <span className="text-white font-bold text-sm">N</span>
             </div>
             <span className="text-xs font-semibold text-gray-900">Try On</span>
           </button>
 
-          {/* Profile */}
+          {/* Profile - Right Half */}
           <button 
             onClick={() => router.push("/profile")}
-            className="flex flex-col items-center space-y-1 px-2 sm:px-3 py-1"
+            className="flex-1 flex flex-col items-center justify-center space-y-1 py-2"
           >
-            <div className="w-5 h-5 sm:w-6 sm:h-6 bg-gray-100 rounded-full flex items-center justify-center">
-              <svg className="w-3 h-3 sm:w-4 sm:h-4 text-gray-600" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+            <div className="w-6 h-6 bg-gray-100 rounded-full flex items-center justify-center">
+              <svg
+                className="w-4 h-4 text-gray-600"
+                fill="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
               </svg>
             </div>
             <span className="text-xs font-medium text-gray-600">Profile</span>

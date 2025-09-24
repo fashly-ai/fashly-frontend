@@ -17,9 +17,9 @@ export default function QuickSetup() {
   };
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="min-h-screen bg-white flex flex-col">
       {/* Header */}
-      <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-gray-200">
+      <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-gray-200 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center">
             <button 
@@ -40,7 +40,7 @@ export default function QuickSetup() {
       </div>
 
       {/* Main Content */}
-      <div className="px-4 sm:px-6 pb-20 sm:pb-24">
+      <div className="flex-1 px-4 sm:px-6 pb-32 sm:pb-36 overflow-y-auto">
         {/* Basic Info Section */}
         <div className="mb-6 sm:mb-8">
           <div className="flex items-center mb-4 sm:mb-6">
@@ -148,8 +148,8 @@ export default function QuickSetup() {
       </div>
 
       {/* Help Button */}
-      <div className="fixed bottom-4 sm:bottom-6 right-4 sm:right-6">
-        <button className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-800 rounded-full flex items-center justify-center hover:bg-gray-700 transition-colors duration-200">
+      <div className="fixed bottom-20 sm:bottom-24 right-4 sm:right-6 z-10">
+        <button className="w-10 h-10 sm:w-12 sm:h-12 bg-gray-800 rounded-full flex items-center justify-center hover:bg-gray-700 transition-colors duration-200 shadow-lg">
           <span className="text-white font-bold text-sm sm:text-lg">?</span>
         </button>
       </div>
