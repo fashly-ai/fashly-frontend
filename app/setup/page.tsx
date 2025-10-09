@@ -2,13 +2,81 @@
 
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import { useState, useEffect } from "react";
+import axios from "@/lib/axios";
+
+interface ProfileData {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  height: string | null;
+  weight: number | null;
+  weightUnit: string | null;
+  profileImageUrl: string | null;
+  phoneNumber: string | null;
+  gender: string | null;
+  bio: string | null;
+  location: string | null;
+  profileCompleted: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export default function QuickSetup() {
   const router = useRouter();
+  const [isLoading, setIsLoading] = useState(false);
+  const [isFetching, setIsFetching] = useState(true);
+  
+  // Form state
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [height, setHeight] = useState("");
+  const [weight, setWeight] = useState("");
+  const [weightUnit, setWeightUnit] = useState("kg");
 
-  const handleContinue = () => {
-    // Navigate to earn points page
-    router.push("/earn-points");
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
+  const fetchProfile = async () => {
+    try {
+      setIsFetching(true);
+      const response = await axios.get<ProfileData>('/api/profile');
+      const profile = response.data;
+      
+      setFirstName(profile.firstName || "");
+      setLastName(profile.lastName || "");
+      setEmail(profile.email);
+      setHeight(profile.height || "");
+      setWeight(profile.weight?.toString() || "");
+      setWeightUnit(profile.weightUnit || "kg");
+    } catch (error) {
+      console.error('Error fetching profile:', error);
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  const handleContinue = async () => {
+    setIsLoading(true);
+    try {
+      await axios.put('/api/profile', {
+        firstName,
+        lastName,
+        height: height || null,
+        weight: weight ? parseFloat(weight) : null,
+        weightUnit,
+      });
+      
+      // Navigate to earn points page
+      router.push("/earn-points");
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      setIsLoading(false);
+    }
   };
 
   const handleSkip = () => {
@@ -49,13 +117,29 @@ export default function QuickSetup() {
           </div>
           
           <div className="space-y-3 sm:space-y-4">
-            {/* Name Field */}
+            {/* First Name Field */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1 sm:mb-2">Name</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1 sm:mb-2">First Name</label>
               <input
                 type="text"
-                placeholder="How should we call you?"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="Enter your first name"
                 className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
+                disabled={isFetching}
+              />
+            </div>
+
+            {/* Last Name Field */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1 sm:mb-2">Last Name</label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Enter your last name"
+                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm sm:text-base"
+                disabled={isFetching}
               />
             </div>
 
@@ -64,7 +148,7 @@ export default function QuickSetup() {
               <label className="block text-sm font-medium text-gray-700 mb-1 sm:mb-2">Email</label>
               <input
                 type="email"
-                value="user@example.com"
+                value={email}
                 className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg bg-gray-50 text-gray-600 text-sm sm:text-base"
                 readOnly
               />
@@ -76,24 +160,28 @@ export default function QuickSetup() {
                 <label className="block text-sm font-medium text-gray-700 mb-1 sm:mb-2">Height</label>
                 <div className="relative">
                   <input
-                    type="text"
-                    value="5'6&quot;"
-                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg bg-gray-50 text-gray-600 pr-10 sm:pr-12 text-sm sm:text-base"
-                    readOnly
+                    type="number"
+                    value={height}
+                    onChange={(e) => setHeight(e.target.value)}
+                    placeholder="170"
+                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-10 sm:pr-12 text-sm sm:text-base"
+                    disabled={isFetching}
                   />
-                  <span className="absolute right-2 sm:right-3 top-1/2 transform -translate-y-1/2 text-xs sm:text-sm text-gray-500">ft/in</span>
+                  <span className="absolute right-2 sm:right-3 top-1/2 transform -translate-y-1/2 text-xs sm:text-sm text-gray-500">cm</span>
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1 sm:mb-2">Weight</label>
                 <div className="relative">
                   <input
-                    type="text"
-                    value="130"
-                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg bg-gray-50 text-gray-600 pr-10 sm:pr-12 text-sm sm:text-base"
-                    readOnly
+                    type="number"
+                    value={weight}
+                    onChange={(e) => setWeight(e.target.value)}
+                    placeholder="65"
+                    className="w-full px-3 sm:px-4 py-2.5 sm:py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-10 sm:pr-12 text-sm sm:text-base"
+                    disabled={isFetching}
                   />
-                  <span className="absolute right-2 sm:right-3 top-1/2 transform -translate-y-1/2 text-xs sm:text-sm text-gray-500">lbs</span>
+                  <span className="absolute right-2 sm:right-3 top-1/2 transform -translate-y-1/2 text-xs sm:text-sm text-gray-500">kg</span>
                 </div>
               </div>
             </div>
@@ -134,13 +222,15 @@ export default function QuickSetup() {
         <div className="max-w-sm sm:max-w-md mx-auto space-y-2 sm:space-y-3">
           <button
             onClick={handleContinue}
-            className="w-full bg-gray-800 text-white py-3 sm:py-4 rounded-lg font-medium hover:bg-gray-700 transition-colors duration-200 text-sm sm:text-base"
+            disabled={isLoading || isFetching}
+            className="w-full bg-gray-800 text-white py-3 sm:py-4 rounded-lg font-medium hover:bg-gray-700 transition-colors duration-200 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Continue
+            {isLoading ? "Saving..." : "Continue"}
           </button>
           <button
             onClick={handleSkip}
-            className="w-full text-gray-600 py-2 hover:text-gray-800 transition-colors duration-200 text-sm sm:text-base"
+            disabled={isLoading}
+            className="w-full text-gray-600 py-2 hover:text-gray-800 transition-colors duration-200 text-sm sm:text-base disabled:opacity-50"
           >
             Skip for now
           </button>

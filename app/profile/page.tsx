@@ -18,11 +18,160 @@ import {
   Download,
   ChevronRight,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import axios from "@/lib/axios";
+
+interface UserProfile {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  height: number | null;
+  weight: number | null;
+  weightUnit: string | null;
+  profileImageUrl: string | null;
+  phoneNumber: string | null;
+  gender: string | null;
+  bio: string | null;
+  location: string | null;
+  profileCompleted: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface GlassProduct {
+  id: string;
+  name: string;
+  productUrl: string;
+  imageUrl: string;
+  allImages: string[];
+  brand: string;
+  category: string;
+  price: string;
+  availability: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  isFavorite?: boolean;
+}
+
+interface Pagination {
+  total: number;
+  page: string;
+  limit: string;
+  totalPages: number;
+  hasNext: boolean;
+  hasPrev: boolean;
+}
+
+interface TryOnHistory {
+  id: string;
+  glasses: GlassProduct;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export default function Profile() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("try-ons");
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [favorites, setFavorites] = useState<GlassProduct[]>([]);
+  const [favoritesPagination, setFavoritesPagination] = useState<Pagination | null>(null);
+  const [isFavoritesLoading, setIsFavoritesLoading] = useState(false);
+  const [tryOnHistory, setTryOnHistory] = useState<TryOnHistory[]>([]);
+  const [tryOnPagination, setTryOnPagination] = useState<Pagination | null>(null);
+  const [isTryOnLoading, setIsTryOnLoading] = useState(false);
+
+  useEffect(() => {
+    const fetchProfile = async () => {
+      try {
+        const response = await axios.get('/api/profile');
+        setProfile(response.data);
+      } catch (error) {
+        console.error('Error fetching profile:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    const fetchFavoritesCount = async () => {
+      try {
+        const response = await axios.get('/api/glasses/favorites/my?page=1&limit=1');
+        setFavoritesPagination(response.data.pagination);
+      } catch (error) {
+        console.error('Error fetching favorites count:', error);
+      }
+    };
+
+    const fetchTryOnCount = async () => {
+      try {
+        const response = await axios.get('/api/tryon/history?page=1&limit=1');
+        setTryOnPagination(response.data.pagination);
+      } catch (error) {
+        console.error('Error fetching try-on count:', error);
+      }
+    };
+
+    fetchProfile();
+    fetchFavoritesCount();
+    fetchTryOnCount();
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'likes') {
+      fetchFavorites();
+    } else if (activeTab === 'try-ons') {
+      fetchTryOnHistory();
+    }
+  }, [activeTab]);
+
+  const fetchFavorites = async () => {
+    setIsFavoritesLoading(true);
+    try {
+      const response = await axios.get('/api/glasses/favorites/my?page=1&limit=50');
+      setFavorites(response.data.data);
+      setFavoritesPagination(response.data.pagination);
+    } catch (error) {
+      console.error('Error fetching favorites:', error);
+    } finally {
+      setIsFavoritesLoading(false);
+    }
+  };
+
+  const fetchTryOnHistory = async () => {
+    setIsTryOnLoading(true);
+    try {
+      const response = await axios.get('/api/tryon/history?page=1&limit=50');
+      setTryOnHistory(response.data.data);
+      setTryOnPagination(response.data.pagination);
+    } catch (error) {
+      console.error('Error fetching try-on history:', error);
+    } finally {
+      setIsTryOnLoading(false);
+    }
+  };
+
+  const handleToggleFavorite = async (glassesId: string) => {
+    try {
+      await axios.post('/api/glasses/favorites/toggle', {
+        glassesId: glassesId
+      });
+      
+      setFavorites(prevFavorites => 
+        prevFavorites.filter(fav => fav.id !== glassesId)
+      );
+      
+      setFavoritesPagination(prev => 
+        prev ? { ...prev, total: prev.total - 1 } : null
+      );
+      
+      console.log('Favorite removed successfully');
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+    }
+  };
 
   const handleBack = () => {
     router.push("/products");
@@ -50,7 +199,9 @@ export default function Profile() {
             </button>
             <div>
               <h1 className="text-lg font-bold text-gray-900">Profile</h1>
-              <p className="text-xs text-gray-600">123123 • 250 pts</p>
+              <p className="text-xs text-gray-600">
+                {profile?.firstName || 'User'} • 250 pts
+              </p>
             </div>
           </div>
           <div className="flex items-center space-x-2">
@@ -76,18 +227,24 @@ export default function Profile() {
             <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
           </svg>
         </div>
-        <h2 className="text-lg font-bold text-gray-900 mb-1">123123</h2>
-        <p className="text-sm text-gray-600 mb-3">user@example.com</p>
+        <h2 className="text-lg font-bold text-gray-900 mb-1">
+          {profile?.fullName || profile?.firstName || 'User'}
+        </h2>
+        <p className="text-sm text-gray-600 mb-3">{profile?.email || 'user@example.com'}</p>
 
-        <div className="flex justify-center space-x-6">
-          <div className="text-center">
-            <div className="text-xl font-bold text-gray-900">11</div>
-            <div className="text-xs text-gray-600">Try-ons</div>
-          </div>
-          <div className="text-center">
-            <div className="text-xl font-bold text-gray-900">3</div>
-            <div className="text-xs text-gray-600">Liked</div>
-          </div>
+          <div className="flex justify-center space-x-6">
+            <div className="text-center">
+              <div className="text-xl font-bold text-gray-900">
+                {tryOnPagination?.total || 0}
+              </div>
+              <div className="text-xs text-gray-600">Try-ons</div>
+            </div>
+            <div className="text-center">
+              <div className="text-xl font-bold text-gray-900">
+                {favoritesPagination?.total || 0}
+              </div>
+              <div className="text-xs text-gray-600">Liked</div>
+            </div>
           <div className="text-center">
             <div className="text-xl font-bold text-gray-900">250</div>
             <div className="text-xs text-gray-600">Points</div>
@@ -216,348 +373,131 @@ export default function Profile() {
           <div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-base font-bold text-gray-900">
-                Recent Try-ons
+                Recent Try-ons {tryOnPagination && `(${tryOnPagination.total})`}
               </h3>
-              <button className="text-xs text-gray-600 hover:text-gray-900">
-                View all
-              </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mb-4">
-              {/* Try-on Card 1 */}
-              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                <div className="aspect-[4/5] bg-gray-100 flex items-center justify-center">
-                  <div className="text-center text-gray-500">
-                    <svg
-                      className="w-6 h-6 mx-auto mb-1"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                    </svg>
-                    <p className="text-xs">Try-on Photo</p>
-                  </div>
-                </div>
-                <div className="p-2">
-                  <p className="text-xs text-gray-500 mb-1">Ray-Ban</p>
-                  <p className="text-xs font-semibold text-gray-900 mb-2">
-                    Wayfarer Classic
-                  </p>
-                  <div className="flex space-x-1">
-                    <button className="flex-1 border border-gray-300 text-gray-700 py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-50">
-                      Share
-                    </button>
-                    <button className="flex-1 bg-gray-900 text-white py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-800">
-                      Add to Cart
-                    </button>
-                  </div>
-                </div>
+            {isTryOnLoading ? (
+              <div className="text-center py-8 text-gray-500">Loading try-ons...</div>
+            ) : tryOnHistory.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">No try-ons yet</div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 mb-4">
+                {tryOnHistory.map((item) => {
+                  const d45Image = item.glasses.allImages?.find(img => img.includes('D_45'));
+                  const displayImage = d45Image || item.glasses.allImages?.[0] || item.glasses.imageUrl;
+                  
+                  return (
+                    <div key={item.id} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                      <div className="aspect-[4/5] bg-gray-100 flex items-center justify-center overflow-hidden">
+                        {displayImage ? (
+                          <img 
+                            src={displayImage} 
+                            alt={item.glasses.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="text-center text-gray-500">
+                            <svg
+                              className="w-6 h-6 mx-auto mb-1"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+                              />
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
+                              />
+                            </svg>
+                            <p className="text-xs">Try-on Photo</p>
+                          </div>
+                        )}
+                      </div>
+                      <div className="p-2">
+                        <p className="text-xs text-gray-500 mb-1">{item.glasses.brand}</p>
+                        <p className="text-xs font-semibold text-gray-900 mb-2">
+                          {item.glasses.name}
+                        </p>
+                        <div className="flex space-x-1">
+                          <button className="flex-1 border border-gray-300 text-gray-700 py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-50">
+                            Share
+                          </button>
+                          <button className="flex-1 bg-gray-900 text-white py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-800">
+                            Try Again
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-
-              {/* Try-on Card 2 */}
-              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                <div className="aspect-[4/5] bg-gray-100 flex items-center justify-center">
-                  <div className="text-center text-gray-500">
-                    <svg
-                      className="w-6 h-6 mx-auto mb-1"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                    </svg>
-                    <p className="text-xs">Try-on Photo</p>
-                  </div>
-                </div>
-                <div className="p-2">
-                  <p className="text-xs text-gray-500 mb-1">Gentle Monster</p>
-                  <p className="text-xs font-semibold text-gray-900 mb-2">
-                    Oversized Square
-                  </p>
-                  <div className="flex space-x-1">
-                    <button className="flex-1 border border-gray-300 text-gray-700 py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-50">
-                      Share
-                    </button>
-                    <button className="flex-1 bg-gray-900 text-white py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-800">
-                      Add to Cart
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Try-on Card 3 */}
-              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                <div className="aspect-[4/5] bg-gray-100 flex items-center justify-center">
-                  <div className="text-center text-gray-500">
-                    <svg
-                      className="w-6 h-6 mx-auto mb-1"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                    </svg>
-                    <p className="text-xs">Try-on Photo</p>
-                  </div>
-                </div>
-                <div className="p-2">
-                  <p className="text-xs text-gray-500 mb-1">Oakley</p>
-                  <p className="text-xs font-semibold text-gray-900 mb-2">
-                    Sport Shield
-                  </p>
-                  <div className="flex space-x-1">
-                    <button className="flex-1 border border-gray-300 text-gray-700 py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-50">
-                      Share
-                    </button>
-                    <button className="flex-1 bg-gray-900 text-white py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-800">
-                      Add to Cart
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Try-on Card 4 */}
-              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                <div className="aspect-[4/5] bg-gray-100 flex items-center justify-center">
-                  <div className="text-center text-gray-500">
-                    <svg
-                      className="w-6 h-6 mx-auto mb-1"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                    </svg>
-                    <p className="text-xs">Try-on Photo</p>
-                  </div>
-                </div>
-                <div className="p-2">
-                  <p className="text-xs text-gray-500 mb-1">Tom Ford</p>
-                  <p className="text-xs font-semibold text-gray-900 mb-2">
-                    Aviator Classic
-                  </p>
-                  <div className="flex space-x-1">
-                    <button className="flex-1 border border-gray-300 text-gray-700 py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-50">
-                      Share
-                    </button>
-                    <button className="flex-1 bg-gray-900 text-white py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-800">
-                      Add to Cart
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Try-on Card 5 */}
-              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                <div className="aspect-[4/5] bg-gray-100 flex items-center justify-center">
-                  <div className="text-center text-gray-500">
-                    <svg
-                      className="w-6 h-6 mx-auto mb-1"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                    </svg>
-                    <p className="text-xs">Try-on Photo</p>
-                  </div>
-                </div>
-                <div className="p-2">
-                  <p className="text-xs text-gray-500 mb-1">Prada</p>
-                  <p className="text-xs font-semibold text-gray-900 mb-2">
-                    Linea Rossa
-                  </p>
-                  <div className="flex space-x-1">
-                    <button className="flex-1 border border-gray-300 text-gray-700 py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-50">
-                      Share
-                    </button>
-                    <button className="flex-1 bg-gray-900 text-white py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-800">
-                      Add to Cart
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Try-on Card 6 */}
-              <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-                <div className="aspect-[4/5] bg-gray-100 flex items-center justify-center">
-                  <div className="text-center text-gray-500">
-                    <svg
-                      className="w-6 h-6 mx-auto mb-1"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                    </svg>
-                    <p className="text-xs">Try-on Photo</p>
-                  </div>
-                </div>
-                <div className="p-2">
-                  <p className="text-xs text-gray-500 mb-1">Gucci</p>
-                  <p className="text-xs font-semibold text-gray-900 mb-2">
-                    GG0061S
-                  </p>
-                  <div className="flex space-x-1">
-                    <button className="flex-1 border border-gray-300 text-gray-700 py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-50">
-                      Share
-                    </button>
-                    <button className="flex-1 bg-gray-900 text-white py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-800">
-                      Add to Cart
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            )}
           </div>
         )}
 
         {activeTab === "likes" && (
           <div>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-base font-bold text-gray-900">Liked Glasses</h3>
-              <button className="text-xs text-gray-600 hover:text-gray-900">
-                Clear all
-              </button>
+              <h3 className="text-base font-bold text-gray-900">
+                Liked Glasses {favoritesPagination && `(${favoritesPagination.total})`}
+              </h3>
             </div>
             
-            <div className="space-y-3">
-              {/* Liked Item 1 */}
-              <div className="bg-gray-50 rounded-lg p-3 flex items-center">
-                <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center mr-3">
-                  <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs text-gray-500 mb-1">Ray-Ban</p>
-                  <p className="text-sm font-semibold text-gray-900 mb-1">Wayfarer Classic</p>
-                  <p className="text-sm font-bold text-gray-900">$154</p>
-                </div>
-                <div className="flex flex-col items-center space-y-3">
-                  <button className="p-1">
-                    <Heart className="w-4 h-4 text-red-500 fill-current" />
-                  </button>
-                  <button className="p-1">
-                    <ShoppingCart className="w-4 h-4 text-gray-600" />
-                  </button>
-                </div>
+            {isFavoritesLoading ? (
+              <div className="text-center py-8 text-gray-500">Loading favorites...</div>
+            ) : favorites.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">No liked glasses yet</div>
+            ) : (
+              <div className="space-y-3">
+                {favorites.map((item) => {
+                  const d45Image = item.allImages?.find(img => img.includes('D_45'));
+                  const displayImage = d45Image || item.allImages?.[0] || item.imageUrl;
+                  
+                  return (
+                    <div key={item.id} className="bg-gray-50 rounded-lg p-3 flex items-center">
+                      <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center mr-3 overflow-hidden">
+                        {displayImage ? (
+                          <img 
+                            src={displayImage} 
+                            alt={item.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-xs text-gray-500 mb-1">{item.brand}</p>
+                        <p className="text-sm font-semibold text-gray-900 mb-1">{item.name}</p>
+                        <p className="text-sm font-bold text-gray-900">{item.price}</p>
+                      </div>
+                      <div className="flex flex-col items-center space-y-3">
+                        <button 
+                          onClick={() => handleToggleFavorite(item.id)}
+                          className="p-1"
+                        >
+                          <Heart className="w-4 h-4 text-red-500 fill-current" />
+                        </button>
+                        <button className="p-1">
+                          <ShoppingCart className="w-4 h-4 text-gray-600" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-
-              {/* Liked Item 2 */}
-              <div className="bg-gray-50 rounded-lg p-3 flex items-center">
-                <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center mr-3">
-                  <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs text-gray-500 mb-1">Gentle Monster</p>
-                  <p className="text-sm font-semibold text-gray-900 mb-1">Oversized Square</p>
-                  <p className="text-sm font-bold text-gray-900">$320</p>
-                </div>
-                <div className="flex flex-col items-center space-y-3">
-                  <button className="p-1">
-                    <Heart className="w-4 h-4 text-red-500 fill-current" />
-                  </button>
-                  <button className="p-1">
-                    <ShoppingCart className="w-4 h-4 text-gray-600" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Liked Item 3 */}
-              <div className="bg-gray-50 rounded-lg p-3 flex items-center">
-                <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center mr-3">
-                  <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <p className="text-xs text-gray-500 mb-1">Prada</p>
-                  <p className="text-sm font-semibold text-gray-900 mb-1">Butterfly</p>
-                  <p className="text-sm font-bold text-gray-900">$450</p>
-                </div>
-                <div className="flex flex-col items-center space-y-3">
-                  <button className="p-1">
-                    <Heart className="w-4 h-4 text-red-500 fill-current" />
-                  </button>
-                  <button className="p-1">
-                    <ShoppingCart className="w-4 h-4 text-gray-600" />
-                  </button>
-                </div>
-              </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -802,7 +742,9 @@ export default function Profile() {
               <div className="space-y-3">
                 <div>
                   <label className="text-sm font-medium text-gray-700">Display Name</label>
-                  <p className="text-sm text-gray-900 mt-1">123123</p>
+                  <p className="text-sm text-gray-900 mt-1">
+                    {profile?.fullName || profile?.firstName || 'Not set'}
+                  </p>
                 </div>
               </div>
             </div>
@@ -813,16 +755,20 @@ export default function Profile() {
               <div className="space-y-4">
                 <div>
                   <label className="text-sm font-medium text-gray-700">Email Address</label>
-                  <p className="text-sm text-gray-900 mt-1">user@example.com</p>
+                  <p className="text-sm text-gray-900 mt-1">{profile?.email || 'Not set'}</p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700">Height</label>
-                    <p className="text-sm text-gray-900 mt-1">Not set</p>
+                    <p className="text-sm text-gray-900 mt-1">
+                      {profile?.height ? `${profile.height} cm` : 'Not set'}
+                    </p>
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Weight</label>
-                    <p className="text-sm text-gray-900 mt-1">Not set</p>
+                    <p className="text-sm text-gray-900 mt-1">
+                      {profile?.weight ? `${profile.weight} ${profile.weightUnit || 'kg'}` : 'Not set'}
+                    </p>
                   </div>
                 </div>
               </div>
