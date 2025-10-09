@@ -31,6 +31,7 @@ A modern, responsive web application for virtual glasses try-on experiences buil
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS
 - **Icons**: Lucide React
+- **HTTP Client**: Axios
 - **State Management**: React Hooks (useState)
 - **Navigation**: Next.js Router
 
@@ -43,7 +44,7 @@ fashly-fe/
 │   ├── layout.tsx            # Root layout
 │   ├── globals.css           # Global styles
 │   ├── signup/
-│   │   └── page.tsx          # Sign up page
+│   │   └── page.tsx          # Sign up page with email/OTP auth
 │   ├── setup/
 │   │   └── page.tsx          # Quick setup page
 │   ├── earn-points/
@@ -54,7 +55,10 @@ fashly-fe/
 │   │   └── page.tsx          # Try-on results
 │   └── profile/
 │       └── page.tsx          # User profile
+├── lib/
+│   └── axios.ts              # Axios instance with base configuration
 ├── public/                   # Static assets
+├── .env.local                # Environment variables (create this)
 ├── package.json
 ├── tailwind.config.js
 └── README.md
@@ -96,20 +100,191 @@ fashly-fe/
 
 2. **Install dependencies**
    ```bash
-   npm install
-   # or
    pnpm install
+   # or
+   npm install
    ```
 
-3. **Run the development server**
+3. **Set up environment variables**
+   
+   Create a `.env.local` file in the root directory:
    ```bash
-   npm run dev
-   # or
-   pnpm dev
+   NEXT_PUBLIC_API_URL=http://localhost:3001
+   ```
+   
+   > **Note**: The API URL should point to your backend server. Update this value based on your environment (development, staging, production).
+
+4. **Run the development server**
+```bash
+npm run dev
+# or
+pnpm dev
    ```
 
 4. **Open your browser**
    Navigate to [http://localhost:3000](http://localhost:3000)
+
+## 🔌 API Integration
+
+The application uses Axios for HTTP requests with a centralized configuration in `lib/axios.ts`.
+
+### Configuration
+
+The Axios instance is configured with:
+- Base URL from environment variable `NEXT_PUBLIC_API_URL`
+- Default headers for JSON content
+- Automatic error handling
+
+### Authentication Endpoints
+
+**Sign In with Email**
+```typescript
+POST /auth/sign-in
+Body: { email: string }
+Response: OTP sent to email
+```
+
+**Verify OTP**
+```typescript
+POST /auth/sign-in-verify
+Body: { email: string, code: string }
+Response: {
+  success: boolean;
+  message: string;
+  accessToken: string;
+  user: {
+    id: string;
+    email: string;
+    createdAt: string;
+    firstName?: string;
+    lastName?: string;
+  };
+  isNewUser: boolean;
+}
+```
+
+### Profile Endpoints
+
+**Get Profile**
+```typescript
+GET /api/profile
+Headers: { Authorization: Bearer <token> }
+Response: {
+  id: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  fullName: string;
+  height: string | null;
+  weight: number | null;
+  weightUnit: string | null;
+  profileImageUrl: string | null;
+  phoneNumber: string | null;
+  gender: string | null;
+  bio: string | null;
+  location: string | null;
+  profileCompleted: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+**Update Profile**
+```typescript
+PUT /api/profile
+Headers: { Authorization: Bearer <token> }
+Body: {
+  firstName?: string;
+  lastName?: string;
+  height?: string;
+  weight?: number;
+  weightUnit?: string;
+  profileImageUrl?: string;
+  phoneNumber?: string;
+  dateOfBirth?: string;
+  gender?: string;
+  bio?: string;
+  location?: string;
+}
+```
+
+### Glasses/Products Endpoints
+
+**Get Glasses List**
+```typescript
+GET /api/glasses?sortBy=name&sortOrder=ASC&page=1&limit=20
+Headers: { Authorization: Bearer <token> }
+Response: {
+  data: [
+    {
+      id: string;
+      name: string;
+      productUrl: string;
+      imageUrl: string;
+      allImages: string[];
+      brand: string;
+      category: string;
+      price: string;
+      availability: string | null;
+      isActive: boolean;
+      createdAt: string;
+      updatedAt: string;
+    }
+  ];
+  pagination: {
+    total: number;
+    page: string;
+    limit: string;
+    totalPages: number;
+    hasNext: boolean;
+    hasPrev: boolean;
+  };
+}
+```
+
+**Query Parameters:**
+- `sortBy`: Field to sort by (e.g., "name", "price", "createdAt")
+- `sortOrder`: Sort direction ("ASC" or "DESC")
+- `page`: Page number (default: 1)
+- `limit`: Items per page (default: 20)
+
+### Authentication Flow
+
+1. User enters email → OTP sent
+2. User enters 6-digit OTP → Verification
+3. On success:
+   - Access token stored in localStorage
+   - User data stored in localStorage
+   - New users → redirected to `/setup`
+   - Existing users → redirected to `/products`
+
+### Usage Example
+
+```typescript
+import axios from '@/lib/axios';
+import { setAuthToken, setUser, getAuthToken, isAuthenticated } from '@/lib/auth';
+
+// Send OTP
+const response = await axios.post('/auth/sign-in', { email });
+
+// Verify OTP
+const verifyResponse = await axios.post('/auth/sign-in-verify', { 
+  email, 
+  code: otpString 
+});
+
+// Store authentication
+setAuthToken(verifyResponse.data.accessToken);
+setUser(verifyResponse.data.user);
+
+// Check authentication
+if (isAuthenticated()) {
+  // User is logged in
+}
+
+// All subsequent requests automatically include Bearer token
+const data = await axios.get('/protected-endpoint');
+```
 
 ## 📱 User Flow
 
