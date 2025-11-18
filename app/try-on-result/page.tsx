@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Share2, ThumbsUp, ThumbsDown, Heart, HelpCircle } from "lucide-react";
+import { ArrowLeft, Share2, ThumbsUp, ThumbsDown, Heart, HelpCircle, Loader2 } from "lucide-react";
 import { useState, useEffect } from "react";
 import axios from "@/lib/axios";
 
@@ -23,11 +23,28 @@ export default function TryOnResult() {
   const [isLiked, setIsLiked] = useState(false);
   const [isLiking, setIsLiking] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [tryOnImage, setTryOnImage] = useState<string | null>(null);
+  const [tryOnHistoryId, setTryOnHistoryId] = useState<string | null>(null);
+  const [isSavingLook, setIsSavingLook] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
     const fetchProductDetails = async () => {
       // Load product data from localStorage to get the ID
       const storedProduct = localStorage.getItem('selectedGlassProduct');
+      const storedTryOnImage = localStorage.getItem('tryOnResultImage');
+      const storedHistoryId = localStorage.getItem('tryOnHistoryId');
+      
+      // Load try-on image if available
+      if (storedTryOnImage) {
+        setTryOnImage(storedTryOnImage);
+      }
+      
+      // Load history ID if available
+      if (storedHistoryId) {
+        setTryOnHistoryId(storedHistoryId);
+      }
+      
       if (storedProduct) {
         try {
           const productData = JSON.parse(storedProduct);
@@ -56,6 +73,16 @@ export default function TryOnResult() {
 
     fetchProductDetails();
   }, []);
+
+  // Auto-hide toast after 3 seconds
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => {
+        setToast(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
 
   const handleTryAnother = () => {
     router.push("/products");
@@ -96,8 +123,39 @@ export default function TryOnResult() {
     console.log("Share clicked");
   };
 
-  // Get the display image (prioritize D_45 or use first image)
+  const handleSaveLook = async () => {
+    if (!tryOnHistoryId || !tryOnImage) {
+      setToast({ message: "No try-on to save. Please try on glasses first.", type: 'error' });
+      return;
+    }
+
+    setIsSavingLook(true);
+    try {
+      // Call the API to update saved status
+      await axios.put(`/api/glass-tryon-history/${tryOnHistoryId}/saved-status`, {
+        savedTryOn: true
+      });
+      
+      console.log("Try-on look saved successfully");
+      setToast({ message: "Look saved successfully!", type: 'success' });
+    } catch (error: any) {
+      console.error('Error saving look:', error);
+      setToast({ 
+        message: error.response?.data?.message || 'Failed to save look. Please try again.', 
+        type: 'error' 
+      });
+    } finally {
+      setIsSavingLook(false);
+    }
+  };
+
+  // Get the display image (prioritize try-on image, then D_45 or use first image)
   const getDisplayImage = () => {
+    // If we have a try-on result image, use that
+    if (tryOnImage) {
+      return tryOnImage;
+    }
+    
     if (!product) return null;
     
     const d45Image = product.allImages?.find(img => img.includes('D_45'));
@@ -199,6 +257,25 @@ export default function TryOnResult() {
             </button>
           </div>
 
+          {/* Action Buttons */}
+          <div className="flex space-x-3 mb-3">
+            <button
+              onClick={handleSaveLook}
+              disabled={isSavingLook || !tryOnHistoryId}
+              className="flex-1 bg-white border-2 border-gray-300 text-gray-700 py-3 rounded-xl font-semibold hover:bg-gray-50 transition-colors duration-200 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {isSavingLook && <Loader2 className="w-5 h-5 animate-spin" />}
+              {isSavingLook ? "Saving..." : "Save Look"}
+            </button>
+            <button
+              onClick={handleShare}
+              disabled
+              className="flex-1 bg-green-500 text-white py-3 rounded-xl font-semibold hover:bg-green-600 transition-colors duration-200 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Share +50 pts
+            </button>
+          </div>
+
           {/* Try Another Pair Button */}
           <button
             onClick={handleTryAnother}
@@ -238,6 +315,28 @@ export default function TryOnResult() {
           </button>
         </div>
       </div>
+
+      {/* Toast Notification */}
+      {toast && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 animate-fade-in">
+          <div className={`px-6 py-4 rounded-lg shadow-lg flex items-center gap-3 ${
+            toast.type === 'success' 
+              ? 'bg-green-500 text-white' 
+              : 'bg-red-500 text-white'
+          }`}>
+            {toast.type === 'success' ? (
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            ) : (
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            )}
+            <span className="font-medium">{toast.message}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

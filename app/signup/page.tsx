@@ -13,6 +13,7 @@ export default function SignUp() {
   const [email, setEmail] = useState("");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isResending, setIsResending] = useState(false);
   const [error, setError] = useState("");
 
   const handleContinue = () => {
@@ -85,6 +86,26 @@ export default function SignUp() {
       // Focus the last input
       const lastInput = document.getElementById("otp-5");
       lastInput?.focus();
+    }
+  };
+
+  const handleResendOTP = async () => {
+    if (!email || isResending) return;
+
+    setIsResending(true);
+    setError("");
+    try {
+      const response = await axios.post("/auth/sign-in", { email });
+
+      if (response.status === 200 || response.status === 201) {
+        // Show success feedback (you could add a success message state if needed)
+        setError(""); // Clear any previous errors
+      }
+    } catch (error) {
+      console.error("Error resending OTP:", error);
+      setError("Failed to resend OTP. Please try again.");
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -325,10 +346,11 @@ export default function SignUp() {
 
               {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
               <button
-                onClick={handleEmailSubmit}
-                className="mt-4 text-sm text-gray-600 hover:text-gray-900 font-medium transition-colors duration-200"
+                onClick={handleResendOTP}
+                disabled={isResending}
+                className="mt-4 text-sm text-gray-600 hover:text-gray-900 font-medium transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Didn't receive code? Resend
+                {isResending ? "Sending..." : "Didn't receive code? Resend"}
               </button>
             </div>
 
