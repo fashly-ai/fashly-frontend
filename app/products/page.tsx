@@ -62,6 +62,13 @@ export default function Products() {
   }>({});
   const [modalImageIndex, setModalImageIndex] = useState(0);
 
+  // Try-on state
+  const [isTryOnProcessing, setIsTryOnProcessing] = useState(false);
+  const [tryOnImage, setTryOnImage] = useState<string | null>(null);
+  const [tryOnError, setTryOnError] = useState<string | null>(null);
+  const [tryOnHistoryId, setTryOnHistoryId] = useState<string | null>(null);
+  const [isSavingLook, setIsSavingLook] = useState(false);
+
   useEffect(() => {
     // Only fetch on initial load
     fetchProducts(1, false);
@@ -98,16 +105,47 @@ export default function Products() {
   const handleTryOn = async (product: GlassProduct) => {
     setSelectedProduct(product);
     setModalImageIndex(0); // Reset to first image
+    setTryOnImage(null); // Reset previous image
+    setTryOnError(null); // Reset error
+    setTryOnHistoryId(null); // Reset history ID
     setShowTryOnModal(true);
-    
-    // Save try-on to backend
+    setIsTryOnProcessing(true);
+
     try {
-      await axios.post('/api/tryon/save', {
-        glassesId: product.id
+      // Call ComfyUI API to process the glass
+      const response = await axios.post("/api/comfyui/process-glass", {
+        glassId: product.id,
+        prompt:
+          "person wearing stylish eyeglasses, professional portrait, clear face, natural lighting",
+        negativePrompt:
+          "blurry, low quality, distorted, cropped face, partial face",
+        seed: 42,
       });
-      console.log(`Try on saved for ${product.name}`);
-    } catch (error) {
-      console.error('Error saving try-on:', error);
+
+      if (response.data.resultImageUrl) {
+        setTryOnImage(response.data.resultImageUrl);
+        setTryOnHistoryId(response.data.id); // Store the history ID for saving later
+      } else {
+        setTryOnError("Failed to generate try-on image");
+      }
+
+      // Save try-on to backend (old flow)
+      try {
+        await axios.post("/api/tryon/save", {
+          glassesId: product.id,
+        });
+        console.log(`Try on saved for ${product.name}`);
+      } catch (error) {
+        console.error("Error saving try-on:", error);
+      }
+    } catch (error: any) {
+      console.error("Error processing try-on:", error);
+      setTryOnError(
+        error.response?.data?.message ||
+          "Failed to process try-on. Please try again."
+      );
+    } finally {
+      setIsTryOnProcessing(false);
     }
   };
 
@@ -115,6 +153,9 @@ export default function Products() {
     setShowTryOnModal(false);
     setSelectedProduct(null);
     setModalImageIndex(0);
+    setTryOnImage(null);
+    setTryOnError(null);
+    setTryOnHistoryId(null);
   };
 
   const handleModalNextImage = () => {
@@ -135,12 +176,41 @@ export default function Products() {
     }
   };
 
-  const handleSaveLook = () => {
-    console.log("Save look clicked");
-    handleCloseModal();
+  const handleSaveLook = async () => {
+    if (!tryOnHistoryId || !tryOnImage) {
+      console.log("No try-on to save");
+      handleCloseModal();
+      return;
+    }
+
+    setIsSavingLook(true);
+    try {
+      // Call the API to update saved status
+      await axios.put(
+        `/api/glass-tryon-history/${tryOnHistoryId}/saved-status`,
+        {
+          savedTryOn: true,
+        }
+      );
+
+      console.log("Try-on look saved successfully");
+      // You could add a success toast notification here
+      handleCloseModal();
+    } catch (error: any) {
+      console.error("Error saving look:", error);
+      // Show error but still close modal
+      alert("Failed to save look. Please try again.");
+    } finally {
+      setIsSavingLook(false);
+    }
   };
 
   const handleShare = () => {
+    if (tryOnImage) {
+      // Share the try-on image
+      console.log("Sharing try-on image");
+      // You can implement actual share logic here
+    }
     console.log("Share +50 pts clicked");
     handleCloseModal();
   };
@@ -159,6 +229,16 @@ export default function Products() {
         JSON.stringify(productDetails)
       );
 
+      // Store the try-on image if available
+      if (tryOnImage) {
+        localStorage.setItem("tryOnResultImage", tryOnImage);
+      }
+
+      // Store the history ID if available
+      if (tryOnHistoryId) {
+        localStorage.setItem("tryOnHistoryId", tryOnHistoryId);
+      }
+
       handleCloseModal();
       router.push("/try-on-result");
     } catch (error) {
@@ -168,6 +248,17 @@ export default function Products() {
         "selectedGlassProduct",
         JSON.stringify(selectedProduct)
       );
+
+      // Store the try-on image if available
+      if (tryOnImage) {
+        localStorage.setItem("tryOnResultImage", tryOnImage);
+      }
+
+      // Store the history ID if available
+      if (tryOnHistoryId) {
+        localStorage.setItem("tryOnHistoryId", tryOnHistoryId);
+      }
+
       handleCloseModal();
       router.push("/try-on-result");
     }
@@ -176,22 +267,22 @@ export default function Products() {
   const handleToggleFavorite = async (glassesId: string, index: number) => {
     try {
       // Call the API first
-      await axios.post('/api/glasses/favorites/toggle', {
-        glassesId: glassesId
+      await axios.post("/api/glasses/favorites/toggle", {
+        glassesId: glassesId,
       });
-      
+
       // Update UI only after successful API call
-      setProducts(prevProducts => 
-        prevProducts.map((product, i) => 
-          i === index 
+      setProducts((prevProducts) =>
+        prevProducts.map((product, i) =>
+          i === index
             ? { ...product, isFavorite: !product.isFavorite }
             : product
         )
       );
-      
-      console.log('Favorite toggled successfully');
+
+      console.log("Favorite toggled successfully");
     } catch (error) {
-      console.error('Error toggling favorite:', error);
+      console.error("Error toggling favorite:", error);
     }
   };
 
@@ -590,19 +681,19 @@ export default function Products() {
                         </>
                       )}
 
-                      <button 
+                      <button
                         onClick={(e) => {
                           e.stopPropagation();
                           handleToggleFavorite(product.id, productIndex);
                         }}
                         className="absolute top-2 sm:top-3 right-2 sm:right-3 p-1.5 sm:p-2 bg-white rounded-full shadow-sm hover:bg-gray-50 transition-colors duration-200"
                       >
-                        <Heart 
+                        <Heart
                           className={`w-3 h-3 sm:w-4 sm:h-4 transition-colors duration-200 ${
-                            product.isFavorite 
-                              ? 'text-red-600 fill-current' 
-                              : 'text-gray-600'
-                          }`} 
+                            product.isFavorite
+                              ? "text-red-600 fill-current"
+                              : "text-gray-600"
+                          }`}
                         />
                       </button>
                     </div>
@@ -680,7 +771,8 @@ export default function Products() {
             {/* Close Button */}
             <button
               onClick={handleCloseModal}
-              className="absolute top-3 sm:top-4 right-3 sm:right-4 text-gray-400 hover:text-gray-600 z-10"
+              disabled={isTryOnProcessing || isSavingLook}
+              className="absolute top-3 sm:top-4 right-3 sm:right-4 text-gray-400 hover:text-gray-600 z-10 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-400"
             >
               <svg
                 className="w-5 h-5 sm:w-6 sm:h-6"
@@ -708,11 +800,53 @@ export default function Products() {
                 </p>
               </div>
 
-              {/* Product Image with Navigation */}
+              {/* Product Image with Navigation / Try-On Result */}
               <div className="relative group">
                 <div className="w-full aspect-square bg-gray-100 rounded-xl overflow-hidden">
-                  {selectedProduct.allImages &&
-                  selectedProduct.allImages.length > 0 ? (
+                  {isTryOnProcessing ? (
+                    // Loading State
+                    <div className="w-full h-full flex items-center justify-center">
+                      <div className="text-center">
+                        <Loader2 className="w-12 h-12 sm:w-16 sm:h-16 mx-auto mb-3 text-gray-600 animate-spin" />
+                        <p className="text-sm sm:text-base font-medium text-gray-700">
+                          Generating your try-on...
+                        </p>
+                        <p className="text-xs sm:text-sm text-gray-500 mt-1">
+                          This may take a few moments
+                        </p>
+                      </div>
+                    </div>
+                  ) : tryOnError ? (
+                    // Error State
+                    <div className="w-full h-full flex items-center justify-center">
+                      <div className="text-center text-red-600 px-4">
+                        <svg
+                          className="w-10 h-10 sm:w-12 sm:h-12 mx-auto mb-2"
+                          fill="none"
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
+                        </svg>
+                        <p className="text-xs sm:text-sm font-medium">
+                          {tryOnError}
+                        </p>
+                      </div>
+                    </div>
+                  ) : tryOnImage ? (
+                    // Try-On Result Image
+                    <img
+                      src={tryOnImage}
+                      alt={`Try on result for ${selectedProduct.name}`}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : selectedProduct.allImages &&
+                    selectedProduct.allImages.length > 0 ? (
                     <>
                       <img
                         src={selectedProduct.allImages[modalImageIndex]}
@@ -722,7 +856,7 @@ export default function Products() {
                         className="w-full h-full object-cover"
                       />
 
-                      {/* Navigation Buttons - Only show if multiple images */}
+                      {/* Navigation Buttons - Only show if multiple images and not showing try-on */}
                       {selectedProduct.allImages.length > 1 && (
                         <>
                           <button
@@ -785,13 +919,16 @@ export default function Products() {
             <div className="flex space-x-2 sm:space-x-3 mb-3 sm:mb-4">
               <button
                 onClick={handleSaveLook}
-                className="flex-1 bg-white border-2 border-gray-300 text-gray-700 py-2.5 sm:py-3 rounded-lg font-medium hover:bg-gray-50 transition-colors duration-200 text-sm sm:text-base"
+                disabled={isTryOnProcessing || isSavingLook}
+                className="flex-1 bg-white border-2 border-gray-300 text-gray-700 py-2.5 sm:py-3 rounded-lg font-medium hover:bg-gray-50 transition-colors duration-200 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white flex items-center justify-center gap-2"
               >
-                Save Look
+                {isSavingLook && <Loader2 className="w-4 h-4 animate-spin" />}
+                {isSavingLook ? "Saving..." : "Save Look"}
               </button>
               <button
                 onClick={handleShare}
-                className="flex-1 bg-green-500 text-white py-2.5 sm:py-3 rounded-lg font-medium hover:bg-green-600 transition-colors duration-200 text-sm sm:text-base"
+                disabled={true}
+                className="flex-1 bg-green-500 text-white py-2.5 sm:py-3 rounded-lg font-medium hover:bg-green-600 transition-colors duration-200 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-green-500"
               >
                 Share +50 pts
               </button>
@@ -801,7 +938,8 @@ export default function Products() {
             <div className="text-center">
               <button
                 onClick={handleSeeDetails}
-                className="text-gray-600 hover:text-gray-800 font-medium text-sm sm:text-base"
+                disabled={isTryOnProcessing || isSavingLook}
+                className="text-gray-600 hover:text-gray-800 font-medium text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-600"
               >
                 See Details
               </button>
