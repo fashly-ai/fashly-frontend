@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { useState, useEffect } from "react";
 import axios from "@/lib/axios";
+import ImageUpload from "@/components/ImageUpload";
 
 interface ProfileData {
   id: string;
@@ -36,6 +37,7 @@ export default function QuickSetup() {
   const [height, setHeight] = useState("");
   const [weight, setWeight] = useState("");
   const [weightUnit, setWeightUnit] = useState("kg");
+  const [profileImageUrl, setProfileImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
     fetchProfile();
@@ -53,6 +55,7 @@ export default function QuickSetup() {
       setHeight(profile.height || "");
       setWeight(profile.weight?.toString() || "");
       setWeightUnit(profile.weightUnit || "kg");
+      setProfileImageUrl(profile.profileImageUrl);
     } catch (error) {
       console.error('Error fetching profile:', error);
     } finally {
@@ -71,8 +74,8 @@ export default function QuickSetup() {
         weightUnit,
       });
       
-      // Navigate to earn points page
-      router.push("/earn-points");
+      // Navigate to products page
+      router.push("/products");
     } catch (error) {
       console.error('Error updating profile:', error);
       setIsLoading(false);
@@ -80,8 +83,8 @@ export default function QuickSetup() {
   };
 
   const handleSkip = () => {
-    // Navigate to earn points page
-    router.push("/earn-points");
+    // Navigate to products page
+    router.push("/products");
   };
 
   return (
@@ -191,29 +194,17 @@ export default function QuickSetup() {
         {/* Upload Selfie Section */}
         <div className="mb-6 sm:mb-8">
           <div className="flex items-center mb-4 sm:mb-6">
-            <h2 className="text-base sm:text-lg font-semibold text-gray-900 mr-2 sm:mr-3">Upload Selfie</h2>
-            <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">Required</span>
+            <h2 className="text-base sm:text-lg font-semibold text-gray-900 mr-2 sm:mr-3">Upload Full Body Photo</h2>
+            <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full font-medium">Required for Try-On</span>
           </div>
           
-          {/* Photo Upload Area */}
-          <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 sm:p-8 text-center hover:border-gray-400 transition-colors duration-200 cursor-pointer">
-            <div className="flex flex-col items-center">
-              <svg className="w-10 h-10 sm:w-12 sm:h-12 text-gray-400 mb-3 sm:mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              <p className="text-sm sm:text-base text-gray-600 font-medium">Add Your Photo</p>
-            </div>
-          </div>
-
-          {/* Tips */}
-          <div className="mt-3 sm:mt-4 p-3 bg-blue-50 rounded-lg flex items-start">
-            <svg className="w-4 h-4 sm:w-5 sm:h-5 text-blue-500 mr-2 sm:mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-            </svg>
-            <p className="text-xs sm:text-sm text-blue-700">For best results: Natural light, clear face, no sunglasses</p>
-          </div>
+          <ImageUpload
+            currentImageUrl={profileImageUrl}
+            onUploadSuccess={(imageUrl) => {
+              setProfileImageUrl(imageUrl);
+              console.log("Image uploaded successfully:", imageUrl);
+            }}
+          />
         </div>
       </div>
 

@@ -1,9 +1,38 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 export default function Home() {
   const router = useRouter();
+  const [isChecking, setIsChecking] = useState(true);
+
+  useEffect(() => {
+    // Check if user is authenticated
+    // Only run on client-side
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem('accessToken');
+      
+      if (token) {
+        // User is authenticated, redirect to products
+        router.push('/products');
+      } else {
+        // User is not authenticated, show landing page
+        setIsChecking(false);
+      }
+    } else {
+      setIsChecking(false);
+    }
+  }, [router]);
+
+  // Show nothing while checking authentication
+  if (isChecking) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="text-white text-lg">Loading...</div>
+      </div>
+    );
+  }
 
   const handleGetStarted = () => {
     router.push("/signup");
