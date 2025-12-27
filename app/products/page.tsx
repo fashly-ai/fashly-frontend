@@ -12,24 +12,55 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  Bell,
+  CheckCircle,
+  X,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import axios from "@/lib/axios";
+import { useTryOnSocket, TryOnJobUpdate, TryOnJob } from "@/lib/useTryOnSocket";
+import ImageUpload from "@/components/ImageUpload";
 
-interface GlassProduct {
+// History data from the API
+interface TryOnHistoryData {
   id: string;
-  name: string;
-  productUrl: string;
-  imageUrl: string;
-  allImages: string[];
-  brand: string;
-  category: string;
-  price: string;
-  availability: string | null;
-  isActive: boolean;
+  modelImageUrl: string;
+  garmentUrls?: string[];  // New format
+  upperGarmentUrl?: string;  // Legacy format
+  lowerGarmentUrl?: string;  // Legacy format
+  resultImageUrl: string;
+  predictionId: string;
+  processingTime: number;
+  isSaved: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+interface ClothingProduct {
+  id: string;
+  name: string;
+  brand: string;
+  clothingType: string; // "upper" or "lower"
+  description: string;
+  price: number | null | undefined;
+  currency: string;
+  imageUrl: string;
+  thumbnailUrl: string | null;
+  additionalImages: string[] | null;
+  color: string;
+  sizes: string[];
+  material: string;
+  category: string;
+  season: string;
+  style: string;
+  tags: string[];
+  productUrl: string | null;
+  sku: string | null;
+  isActive: boolean;
+  inStock: boolean;
   isFavorite: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface PaginationData {
@@ -47,32 +78,178 @@ export default function Products() {
   const [showSearch, setShowSearch] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [showTryOnModal, setShowTryOnModal] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<GlassProduct | null>(
+  const [selectedProduct, setSelectedProduct] = useState<ClothingProduct | null>(
     null
   );
   const [showFilters, setShowFilters] = useState(false);
 
   // API state
-  const [products, setProducts] = useState<GlassProduct[]>([]);
+  const [products, setProducts] = useState<ClothingProduct[]>([]);
   const [pagination, setPagination] = useState<PaginationData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [currentImageIndex, setCurrentImageIndex] = useState<{
     [key: string]: number;
   }>({});
   const [modalImageIndex, setModalImageIndex] = useState(0);
 
+  // Selection state for outfit builder - now supports any items
+  const [selectedItems, setSelectedItems] = useState<ClothingProduct[]>([]);
+  const [currentTryOnItems, setCurrentTryOnItems] = useState<ClothingProduct[]>([]);
+
   // Try-on state
   const [isTryOnProcessing, setIsTryOnProcessing] = useState(false);
   const [tryOnImage, setTryOnImage] = useState<string | null>(null);
   const [tryOnError, setTryOnError] = useState<string | null>(null);
   const [tryOnHistoryId, setTryOnHistoryId] = useState<string | null>(null);
+  
+  // User profile state
+  const [userDefaultImage, setUserDefaultImage] = useState<string | null>(null);
+  const [showImageWarningModal, setShowImageWarningModal] = useState(false);
   const [isSavingLook, setIsSavingLook] = useState(false);
+  
+  // Toast state
+  const [toast, setToast] = useState<{
+    show: boolean;
+    message: string;
+    type: "success" | "error";
+  }>({ show: false, message: "", type: "success" });
+
+  // Try-on notification state
+  const [tryOnNotification, setTryOnNotification] = useState<{
+    show: boolean;
+    job: TryOnJob | null;
+    historyData: TryOnHistoryData | null;
+  }>({ show: false, job: null, historyData: null });
+
+  // Handle try-on job completed - fetch full history data
+  const handleJobCompleted = useCallback(async (data: TryOnJobUpdate) => {
+    console.log("🎉 Try-on completed!", data);
+    
+    // Get outfit info from active jobs before it's removed
+    const outfitInfo = activeJobs.get(data.jobId)?.outfitInfo;
+    
+    // Store history ID for viewing
+    if (data.historyId) {
+      localStorage.setItem("tryOnHistoryId", data.historyId);
+      
+      try {
+        // Fetch full history data from API
+        console.log("📡 Fetching history data for:", data.historyId);
+        const historyResponse = await axios.get(`/api/fashn/history/${data.historyId}`);
+        const historyData: TryOnHistoryData = historyResponse.data;
+        
+        console.log("📦 History data received:", historyData);
+        
+        // Store full history data
+        localStorage.setItem("tryOnHistoryData", JSON.stringify(historyData));
+        if (historyData.resultImageUrl) {
+          localStorage.setItem("tryOnResultImage", historyData.resultImageUrl);
+        }
+        
+        // Show notification with full data
+        setTryOnNotification({
+          show: true,
+          job: {
+            jobId: data.jobId,
+            status: data.status,
+            progress: 100,
+            resultImageUrl: historyData.resultImageUrl,
+            historyId: data.historyId,
+            processingTime: historyData.processingTime || data.processingTime,
+            outfitInfo,
+          },
+          historyData,
+        });
+        
+        showToast("✨ Your try-on is ready!", "success");
+      } catch (error) {
+        console.error("Error fetching history data:", error);
+        
+        // Fallback to WebSocket data if API fails
+        if (data.resultImageUrl) {
+          localStorage.setItem("tryOnResultImage", data.resultImageUrl);
+        }
+        
+        setTryOnNotification({
+          show: true,
+          job: {
+            jobId: data.jobId,
+            status: data.status,
+            progress: 100,
+            resultImageUrl: data.resultImageUrl,
+            historyId: data.historyId,
+            processingTime: data.processingTime,
+            outfitInfo,
+          },
+          historyData: null,
+        });
+        
+        showToast("✨ Your try-on is ready!", "success");
+      }
+    } else {
+      // No history ID, use WebSocket data directly
+      if (data.resultImageUrl) {
+        localStorage.setItem("tryOnResultImage", data.resultImageUrl);
+      }
+      
+      setTryOnNotification({
+        show: true,
+        job: {
+          jobId: data.jobId,
+          status: data.status,
+          progress: 100,
+          resultImageUrl: data.resultImageUrl,
+          historyId: data.historyId,
+          processingTime: data.processingTime,
+          outfitInfo,
+        },
+        historyData: null,
+      });
+      
+      showToast("✨ Your try-on is ready!", "success");
+    }
+  }, []);
+
+  // Handle try-on job failed
+  const handleJobFailed = useCallback((data: TryOnJobUpdate) => {
+    console.error("❌ Try-on failed:", data.errorMessage);
+    showToast(data.errorMessage || "Try-on failed. Please try again.", "error");
+  }, []);
+
+  // Initialize WebSocket connection
+  const {
+    isConnected,
+    activeJobs,
+    completedJobs,
+    activeJobCount,
+    hasActiveJobs,
+    addJob,
+    clearCompletedJob,
+  } = useTryOnSocket({
+    onJobCompleted: handleJobCompleted,
+    onJobFailed: handleJobFailed,
+  });
 
   useEffect(() => {
     // Only fetch on initial load
     fetchProducts(1, false);
+    fetchUserDefaultImage();
   }, []);
+  
+  const fetchUserDefaultImage = async () => {
+    try {
+      const response = await axios.get('/api/user-images/default');
+      if (response.data && response.data.imageUrl) {
+        setUserDefaultImage(response.data.imageUrl);
+      }
+    } catch (error) {
+      console.error('Error fetching default image:', error);
+      // User might not have a default image yet
+      setUserDefaultImage(null);
+    }
+  };
 
   const fetchProducts = async (
     page: number,
@@ -80,10 +257,16 @@ export default function Products() {
     search: string = ""
   ) => {
     try {
-      setIsLoading(true);
+      // Use different loading states for initial load vs pagination
+      if (append) {
+        setIsLoadingMore(true);
+      } else {
+        setIsLoading(true);
+      }
+
       const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
       const response = await axios.get(
-        `/api/glasses?sortBy=name&sortOrder=ASC&page=${page}&limit=20${searchParam}`
+        `/api/clothes?sortBy=createdAt&sortOrder=DESC&page=${page}&limit=40${searchParam}`
       );
 
       if (append) {
@@ -98,82 +281,121 @@ export default function Products() {
     } catch (error) {
       console.error("Error fetching products:", error);
     } finally {
-      setIsLoading(false);
+      if (append) {
+        setIsLoadingMore(false);
+      } else {
+        setIsLoading(false);
+      }
     }
   };
 
-  const handleTryOn = async (product: GlassProduct) => {
-    setSelectedProduct(product);
-    setModalImageIndex(0); // Reset to first image
-    setTryOnImage(null); // Reset previous image
-    setTryOnError(null); // Reset error
-    setTryOnHistoryId(null); // Reset history ID
-    setShowTryOnModal(true);
-    setIsTryOnProcessing(true);
+  // Helper function to get the currently displayed image for a product
+  const getCurrentImageForProduct = (product: ClothingProduct) => {
+    const availableImages = [
+      product.imageUrl,
+      ...(product.additionalImages || [])
+    ].filter(Boolean);
+    const currentIndex = currentImageIndex[product.id] || 0;
+    return availableImages[currentIndex] || product.imageUrl;
+  };
+
+  // Add or remove item from selection
+  const handleToggleItem = (product: ClothingProduct) => {
+    setSelectedItems((prev) => {
+      const isSelected = prev.some((item) => item.id === product.id);
+      if (isSelected) {
+        return prev.filter((item) => item.id !== product.id);
+      } else {
+        return [...prev, product];
+      }
+    });
+  };
+
+  // Clear all selections
+  const handleClearSelection = () => {
+    setSelectedItems([]);
+  };
+
+  // Try on with selected items
+  const handleTryOn = async () => {
+    // Check if user has a default image
+    if (!userDefaultImage) {
+      setShowImageWarningModal(true);
+      return;
+    }
+
+    if (selectedItems.length === 0) {
+      showToast("Please select at least one item to try on", "error");
+      return;
+    }
+
+    // Get the currently displayed images for each selected item
+    const garmentUrls = selectedItems.map((item) => getCurrentImageForProduct(item));
+
+    // Store outfit info for later (for display in notifications)
+    const outfitInfo = {
+      items: selectedItems.map((item, idx) => ({
+        name: item.name,
+        price: item.price ?? undefined,
+        imageUrl: garmentUrls[idx],
+      })),
+    };
+
+    // Store outfit data for result page
+    localStorage.setItem("selectedOutfit", JSON.stringify({
+      items: selectedItems,
+    }));
 
     try {
-      // Call ComfyUI API to process the glass
-      const response = await axios.post("/api/comfyui/process-glass", {
-        glassId: product.id,
-        prompt:
-          "person wearing stylish eyeglasses, professional portrait, clear face, natural lighting",
-        negativePrompt:
-          "blurry, low quality, distorted, cropped face, partial face",
-        seed: 42,
-      });
+      // Prepare the outfit data for the queue API using new format
+      const tryOnData = {
+        garmentUrls: garmentUrls,
+        category: "auto",
+        mode: "quality",
+        saveToHistory: true,
+      };
 
-      if (response.data.resultImageUrl) {
-        setTryOnImage(response.data.resultImageUrl);
-        setTryOnHistoryId(response.data.id); // Store the history ID for saving later
-      } else {
-        setTryOnError("Failed to generate try-on image");
-      }
+      console.log("🔄 Submitting try-on job:", tryOnData);
 
-      // Save try-on to backend (old flow)
-      try {
-        await axios.post("/api/tryon/save", {
-          glassesId: product.id,
-        });
-        console.log(`Try on saved for ${product.name}`);
-      } catch (error) {
-        console.error("Error saving try-on:", error);
-      }
+      // Call the queue API
+      const response = await axios.post("/api/fashn/tryon/queue", tryOnData);
+      const jobId = response.data.jobId;
+
+      console.log("✅ Try-on job queued:", jobId);
+
+      // Add job to tracking with outfit info
+      addJob(jobId, outfitInfo);
+
+      // Show success toast
+      showToast("🎨 Try-on queued! You'll be notified when it's ready.", "success");
+
+      // Clear selections after queuing
+      setSelectedItems([]);
     } catch (error: any) {
-      console.error("Error processing try-on:", error);
-      setTryOnError(
+      console.error("❌ Try-on error:", error);
+      const errorMessage =
         error.response?.data?.message ||
-          "Failed to process try-on. Please try again."
-      );
-    } finally {
-      setIsTryOnProcessing(false);
+        error.response?.data?.error ||
+        "Failed to start try-on. Please try again.";
+
+      showToast(errorMessage, "error");
     }
   };
 
   const handleCloseModal = () => {
     setShowTryOnModal(false);
-    setSelectedProduct(null);
     setModalImageIndex(0);
     setTryOnImage(null);
     setTryOnError(null);
     setTryOnHistoryId(null);
   };
 
-  const handleModalNextImage = () => {
-    if (selectedProduct && selectedProduct.allImages) {
-      setModalImageIndex(
-        (prev) => (prev + 1) % selectedProduct.allImages.length
-      );
-    }
-  };
 
-  const handleModalPrevImage = () => {
-    if (selectedProduct && selectedProduct.allImages) {
-      setModalImageIndex(
-        (prev) =>
-          (prev - 1 + selectedProduct.allImages.length) %
-          selectedProduct.allImages.length
-      );
-    }
+  const showToast = (message: string, type: "success" | "error") => {
+    setToast({ show: true, message, type });
+    setTimeout(() => {
+      setToast({ show: false, message: "", type: "success" });
+    }, 3000);
   };
 
   const handleSaveLook = async () => {
@@ -185,21 +407,22 @@ export default function Products() {
 
     setIsSavingLook(true);
     try {
-      // Call the API to update saved status
-      await axios.put(
-        `/api/glass-tryon-history/${tryOnHistoryId}/saved-status`,
+      // Call the new API to update saved status
+      await axios.patch(
+        `/api/fashn/history/${tryOnHistoryId}/saved`,
         {
-          savedTryOn: true,
+          isSaved: true,
         }
       );
 
-      console.log("Try-on look saved successfully");
-      // You could add a success toast notification here
+      showToast("Look saved successfully!", "success");
       handleCloseModal();
     } catch (error: any) {
       console.error("Error saving look:", error);
-      // Show error but still close modal
-      alert("Failed to save look. Please try again.");
+      showToast(
+        error.response?.data?.message || "Failed to save look. Please try again.",
+        "error"
+      );
     } finally {
       setIsSavingLook(false);
     }
@@ -216,59 +439,46 @@ export default function Products() {
   };
 
   const handleSeeDetails = async () => {
-    if (!selectedProduct) return;
-
-    try {
-      // Fetch full product details
-      const response = await axios.get(`/api/glasses/${selectedProduct.id}`);
-      const productDetails = response.data;
-
-      // Store product details in localStorage to pass to try-on result page
-      localStorage.setItem(
-        "selectedGlassProduct",
-        JSON.stringify(productDetails)
-      );
-
-      // Store the try-on image if available
-      if (tryOnImage) {
-        localStorage.setItem("tryOnResultImage", tryOnImage);
-      }
-
-      // Store the history ID if available
-      if (tryOnHistoryId) {
-        localStorage.setItem("tryOnHistoryId", tryOnHistoryId);
-      }
-
-      handleCloseModal();
-      router.push("/try-on-result");
-    } catch (error) {
-      console.error("Error fetching product details:", error);
-      // Fallback: use current product data if API fails
-      localStorage.setItem(
-        "selectedGlassProduct",
-        JSON.stringify(selectedProduct)
-      );
-
-      // Store the try-on image if available
-      if (tryOnImage) {
-        localStorage.setItem("tryOnResultImage", tryOnImage);
-      }
-
-      // Store the history ID if available
-      if (tryOnHistoryId) {
-        localStorage.setItem("tryOnHistoryId", tryOnHistoryId);
-      }
-
-      handleCloseModal();
-      router.push("/try-on-result");
+    handleCloseModal();
+    
+    // Navigate to result page with history ID
+    if (tryOnHistoryId) {
+      router.push(`/try-on-result/${tryOnHistoryId}`);
+    } else {
+      // Fallback - should not happen normally
+      router.push("/products");
     }
   };
 
-  const handleToggleFavorite = async (glassesId: string, index: number) => {
+  // Handle viewing completed try-on notification
+  const handleViewTryOnResult = () => {
+    if (tryOnNotification.job) {
+      const historyId = tryOnNotification.historyData?.id || tryOnNotification.job.historyId;
+      
+      // Clear the notification
+      setTryOnNotification({ show: false, job: null, historyData: null });
+      clearCompletedJob(tryOnNotification.job.jobId);
+      
+      // Navigate to result page with history ID
+      if (historyId) {
+        router.push(`/try-on-result/${historyId}`);
+      }
+    }
+  };
+
+  // Dismiss notification
+  const handleDismissNotification = () => {
+    if (tryOnNotification.job) {
+      clearCompletedJob(tryOnNotification.job.jobId);
+    }
+    setTryOnNotification({ show: false, job: null, historyData: null });
+  };
+
+  const handleToggleFavorite = async (clothingId: string, index: number) => {
     try {
       // Call the API first
-      await axios.post("/api/glasses/favorites/toggle", {
-        glassesId: glassesId,
+      await axios.post("/api/clothes/favorites/toggle", {
+        clothingId: clothingId,
       });
 
       // Update UI only after successful API call
@@ -286,37 +496,29 @@ export default function Products() {
     }
   };
 
-  const [activeCategory, setActiveCategory] = useState("Gentle Monster");
+  const [activeCategory, setActiveCategory] = useState("All");
 
   const handleLoadMore = async () => {
-    if (pagination?.hasNext && !isLoading) {
-      // Save current scroll position
-      const scrollPosition = window.scrollY;
-
+    if (pagination?.hasNext && !isLoadingMore) {
       const nextPage = currentPage + 1;
-      await fetchProducts(nextPage, true);
+      await fetchProducts(nextPage, true, searchQuery);
       setCurrentPage(nextPage);
-
-      // Restore scroll position after a brief delay to allow DOM update
-      setTimeout(() => {
-        window.scrollTo(0, scrollPosition);
-      }, 0);
     }
   };
 
-  const handleNextImage = (productId: string, totalImages: number) => {
+  const handleNextImage = useCallback((productId: string, totalImages: number) => {
     setCurrentImageIndex((prev) => ({
       ...prev,
       [productId]: ((prev[productId] || 0) + 1) % totalImages,
     }));
-  };
+  }, []);
 
-  const handlePrevImage = (productId: string, totalImages: number) => {
+  const handlePrevImage = useCallback((productId: string, totalImages: number) => {
     setCurrentImageIndex((prev) => ({
       ...prev,
       [productId]: ((prev[productId] || 0) - 1 + totalImages) % totalImages,
     }));
-  };
+  }, []);
 
   const handleDropdownToggle = (dropdown: string) => {
     setActiveDropdown(activeDropdown === dropdown ? null : dropdown);
@@ -374,22 +576,22 @@ export default function Products() {
   };
 
   // Mock data for dropdowns
-  const frameShapes = [
-    "Round",
-    "Square",
-    "Oval",
-    "Cat Eye",
-    "Aviator",
-    "Rectangle",
-    "Wayfarer",
-    "Clubmaster",
+  const clothingStyles = [
+    "casual",
+    "formal",
+    "sports",
+    "outdoor",
+    "classic",
+    "sporty",
+    "athletic",
+    "elegant",
   ];
   const priceRanges = [
-    "Under $100",
-    "$100 - $200",
-    "$200 - $300",
-    "$300 - $500",
-    "Over $500",
+    "Under $50",
+    "$50 - $100",
+    "$100 - $150",
+    "$150 - $200",
+    "Over $200",
   ];
   const sortOptions = [
     "Most Popular",
@@ -421,7 +623,7 @@ export default function Products() {
               <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5 text-gray-900" />
             </button>
             <h1 className="text-base sm:text-lg font-bold text-gray-900">
-              Glasses Categories
+              Clothing Categories
             </h1>
           </div>
           <div className="flex items-center space-x-2 sm:space-x-3 relative">
@@ -439,7 +641,7 @@ export default function Products() {
                         handleSearchToggle();
                       }
                     }}
-                    placeholder="Search glasses..."
+                    placeholder="Search clothing..."
                     className="flex-1 px-3 sm:px-4 py-2 sm:py-3 border-0 focus:ring-0 focus:outline-none text-gray-900 placeholder-gray-500 rounded-l-lg text-sm sm:text-base"
                     autoFocus
                   />
@@ -467,14 +669,34 @@ export default function Products() {
       <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
         <div className="flex space-x-4 sm:space-x-6 mb-4 sm:mb-6 overflow-x-auto">
           <button
-            onClick={() => handleCategoryChange("Gentle Monster")}
+            onClick={() => handleCategoryChange("All")}
             className={`font-medium pb-2 transition-colors duration-200 whitespace-nowrap text-sm sm:text-base ${
-              activeCategory === "Gentle Monster"
+              activeCategory === "All"
                 ? "text-blue-600 border-b-2 border-blue-600"
                 : "text-gray-600 hover:text-gray-800"
             }`}
           >
-            Gentle Monster
+            All
+          </button>
+          <button
+            onClick={() => handleCategoryChange("upper")}
+            className={`font-medium pb-2 transition-colors duration-200 whitespace-nowrap text-sm sm:text-base ${
+              activeCategory === "upper"
+                ? "text-blue-600 border-b-2 border-blue-600"
+                : "text-gray-600 hover:text-gray-800"
+            }`}
+          >
+            Upper Body
+          </button>
+          <button
+            onClick={() => handleCategoryChange("lower")}
+            className={`font-medium pb-2 transition-colors duration-200 whitespace-nowrap text-sm sm:text-base ${
+              activeCategory === "lower"
+                ? "text-blue-600 border-b-2 border-blue-600"
+                : "text-gray-600 hover:text-gray-800"
+            }`}
+          >
+            Lower Body
           </button>
         </div>
       </div>
@@ -499,27 +721,27 @@ export default function Products() {
           {/* Filter Buttons - Conditionally Shown */}
           {showFilters && (
             <div className="flex flex-col sm:flex-row gap-3">
-              {/* Frame Shape Dropdown */}
+              {/* Style Dropdown */}
               <div className="relative flex-1">
                 <button
-                  onClick={() => handleDropdownToggle("frameShape")}
+                  onClick={() => handleDropdownToggle("style")}
                   className="w-full flex items-center justify-between px-4 py-3 border border-gray-300 rounded-lg text-sm font-medium text-gray-800 hover:bg-gray-50"
                 >
-                  <span>Frame Shape</span>
+                  <span>Style</span>
                   <ChevronDown className="w-4 h-4" />
                 </button>
-                {activeDropdown === "frameShape" && (
+                {activeDropdown === "style" && (
                   <div className="absolute top-full left-0 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg z-10">
-                    {frameShapes.map((shape) => (
+                    {clothingStyles.map((style) => (
                       <button
-                        key={shape}
+                        key={style}
                         onClick={() => {
-                          console.log(`Selected frame shape: ${shape}`);
+                          console.log(`Selected style: ${style}`);
                           setActiveDropdown(null);
                         }}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg"
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg capitalize"
                       >
-                        {shape}
+                        {style}
                       </button>
                     ))}
                   </div>
@@ -594,24 +816,14 @@ export default function Products() {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-3 sm:gap-4">
+            <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4">
               {products.map((product, productIndex) => {
                 // Get all available images
-                const availableImages =
-                  product.allImages && product.allImages.length > 0
-                    ? product.allImages
-                    : [product.imageUrl];
-
-                // Prioritize D_45 image as the first image
-                const d45Index = availableImages.findIndex((img) =>
-                  img?.includes("D_45")
-                );
-                if (d45Index > 0) {
-                  // Move D_45 image to the front
-                  const d45Image = availableImages[d45Index];
-                  availableImages.splice(d45Index, 1);
-                  availableImages.unshift(d45Image);
-                }
+                // Combine main image and additional images
+                const availableImages = [
+                  product.imageUrl,
+                  ...(product.additionalImages || [])
+                ].filter(Boolean);
 
                 const currentIndex = currentImageIndex[product.id] || 0;
                 const displayImage = availableImages[currentIndex];
@@ -620,16 +832,33 @@ export default function Products() {
                 return (
                   <div
                     key={product.id}
-                    className="bg-white border border-gray-200 rounded-lg overflow-hidden"
+                    className="bg-white border border-gray-200 rounded-lg overflow-hidden animate-slide-up hover:shadow-lg transition-shadow duration-200"
                   >
                     <div className="relative group">
-                      <div className="aspect-square bg-gray-100 flex items-center justify-center overflow-hidden">
+                      <div className="aspect-[2/3] bg-gray-100 flex items-center justify-center overflow-hidden relative">
                         {displayImage ? (
-                          <img
-                            src={displayImage}
-                            alt={product.name}
-                            className="w-full h-full object-cover"
-                          />
+                          <>
+                            <img
+                              key={displayImage}
+                              src={displayImage}
+                              alt={product.name}
+                              className="w-full h-full object-contain transition-opacity duration-150"
+                              loading="eager"
+                              onLoad={(e) => {
+                                // Preload adjacent images when current image loads
+                                const nextIdx = (currentIndex + 1) % availableImages.length;
+                                const prevIdx = (currentIndex - 1 + availableImages.length) % availableImages.length;
+                                if (availableImages[nextIdx]) {
+                                  const nextImg = new Image();
+                                  nextImg.src = availableImages[nextIdx];
+                                }
+                                if (availableImages[prevIdx]) {
+                                  const prevImg = new Image();
+                                  prevImg.src = availableImages[prevIdx];
+                                }
+                              }}
+                            />
+                          </>
                         ) : (
                           <span className="text-gray-400 text-xs sm:text-sm">
                             No Image
@@ -641,6 +870,10 @@ export default function Products() {
                       {hasMultipleImages && (
                         <>
                           <button
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
                             onClick={(e) => {
                               e.stopPropagation();
                               handlePrevImage(
@@ -648,11 +881,15 @@ export default function Products() {
                                 availableImages.length
                               );
                             }}
-                            className="absolute left-1 sm:left-2 top-1/2 transform -translate-y-1/2 p-1 sm:p-1.5 bg-white/80 rounded-full shadow-sm hover:bg-white transition-all duration-200 opacity-0 group-hover:opacity-100"
+                            className="absolute left-0.5 top-1/2 transform -translate-y-1/2 p-0.5 bg-white/90 rounded-full shadow-md hover:bg-white transition-all duration-150 opacity-0 group-hover:opacity-100 active:scale-95 z-10"
                           >
-                            <ChevronLeft className="w-3 h-3 sm:w-4 sm:h-4 text-gray-800" />
+                            <ChevronLeft className="w-3 h-3 text-gray-800" />
                           </button>
                           <button
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }}
                             onClick={(e) => {
                               e.stopPropagation();
                               handleNextImage(
@@ -660,19 +897,19 @@ export default function Products() {
                                 availableImages.length
                               );
                             }}
-                            className="absolute right-1 sm:right-2 top-1/2 transform -translate-y-1/2 p-1 sm:p-1.5 bg-white/80 rounded-full shadow-sm hover:bg-white transition-all duration-200 opacity-0 group-hover:opacity-100"
+                            className="absolute right-0.5 top-1/2 transform -translate-y-1/2 p-0.5 bg-white/90 rounded-full shadow-md hover:bg-white transition-all duration-150 opacity-0 group-hover:opacity-100 active:scale-95 z-10"
                           >
-                            <ChevronRight className="w-3 h-3 sm:w-4 sm:h-4 text-gray-800" />
+                            <ChevronRight className="w-3 h-3 text-gray-800" />
                           </button>
 
                           {/* Image Indicator Dots */}
-                          <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex space-x-1">
+                          <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 flex space-x-0.5">
                             {availableImages.map((_, index) => (
                               <div
                                 key={index}
-                                className={`w-1.5 h-1.5 rounded-full transition-all duration-200 ${
+                                className={`w-1 h-1 rounded-full transition-all duration-200 ${
                                   index === currentIndex
-                                    ? "bg-white w-3"
+                                    ? "bg-white w-2"
                                     : "bg-white/50"
                                 }`}
                               />
@@ -686,10 +923,10 @@ export default function Products() {
                           e.stopPropagation();
                           handleToggleFavorite(product.id, productIndex);
                         }}
-                        className="absolute top-2 sm:top-3 right-2 sm:right-3 p-1.5 sm:p-2 bg-white rounded-full shadow-sm hover:bg-gray-50 transition-colors duration-200"
+                        className="absolute top-1.5 right-1.5 p-1 bg-white rounded-full shadow-sm hover:bg-gray-50 transition-colors duration-200"
                       >
                         <Heart
-                          className={`w-3 h-3 sm:w-4 sm:h-4 transition-colors duration-200 ${
+                          className={`w-3 h-3 transition-colors duration-200 ${
                             product.isFavorite
                               ? "text-red-600 fill-current"
                               : "text-gray-600"
@@ -697,24 +934,33 @@ export default function Products() {
                         />
                       </button>
                     </div>
-                    <div className="p-3 sm:p-4">
-                      <h3 className="font-semibold text-gray-900 text-sm sm:text-base truncate">
+                    <div className="p-2 sm:p-3">
+                      <h3 className="font-semibold text-gray-900 text-xs sm:text-sm truncate">
                         {product.name}
                       </h3>
-                      <p className="text-xs sm:text-sm text-gray-600">
+                      <p className="text-[10px] sm:text-xs text-gray-600 truncate">
                         {product.brand}
                       </p>
-                      <div className="flex justify-between items-center mt-1 sm:mt-2">
-                        <span className="font-bold text-gray-900 text-sm sm:text-base">
-                          {product.price}
+                      <div className="flex justify-between items-center mt-1">
+                        <span className="font-bold text-gray-900 text-xs sm:text-sm">
+                          ${product.price ? product.price.toFixed(2) : '0.00'}
                         </span>
                       </div>
-                      <button
-                        onClick={() => handleTryOn(product)}
-                        className="w-full mt-2 sm:mt-3 bg-black text-white py-2 sm:py-2.5 rounded-lg font-medium hover:bg-gray-800 transition-colors duration-200 text-xs sm:text-sm"
-                      >
-                        Try On
-                      </button>
+                      {selectedItems.some((item) => item.id === product.id) ? (
+                        <button
+                          onClick={() => handleToggleItem(product)}
+                          className="w-full mt-1.5 sm:mt-2 bg-gray-800 text-white py-1.5 sm:py-2 rounded-md font-medium hover:bg-gray-700 transition-colors duration-200 text-[10px] sm:text-xs"
+                        >
+                          ✓ Selected
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleToggleItem(product)}
+                          className="w-full mt-1.5 sm:mt-2 bg-black text-white py-1.5 sm:py-2 rounded-md font-medium hover:bg-gray-800 transition-colors duration-200 text-[10px] sm:text-xs"
+                        >
+                          + Add
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -726,11 +972,11 @@ export default function Products() {
               <div className="text-center mt-6 sm:mt-8">
                 <button
                   onClick={handleLoadMore}
-                  disabled={isLoading}
+                  disabled={isLoadingMore}
                   className="bg-gray-100 text-gray-700 px-6 sm:px-8 py-2.5 sm:py-3 rounded-lg font-medium hover:bg-gray-200 transition-colors duration-200 text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 mx-auto"
                 >
-                  {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {isLoading
+                  {isLoadingMore && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {isLoadingMore
                     ? "Loading..."
                     : `Load More (${
                         pagination.total - products.length
@@ -742,14 +988,55 @@ export default function Products() {
         )}
       </div>
 
-      {/* Bottom Banner */}
-      <div className="fixed bottom-0 left-0 right-0 bg-yellow-400 p-3 sm:p-4">
-        <div className="text-center">
-          <p className="text-yellow-900 font-medium text-sm sm:text-base">
-            Earn points, unlock premium try-ons ✨ 250 pts
-          </p>
+      {/* Bottom Banner - Selected Items */}
+      {selectedItems.length > 0 && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-3 sm:p-4 shadow-lg">
+          <div className="flex items-center justify-between max-w-4xl mx-auto">
+            <div className="flex items-center space-x-3 flex-1 overflow-x-auto">
+              <div className="flex items-center space-x-2">
+                <span className="text-sm font-medium text-gray-700">
+                  {selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''} selected
+                </span>
+                <button
+                  onClick={handleClearSelection}
+                  className="text-xs text-gray-500 hover:text-red-600 underline"
+                >
+                  Clear
+                </button>
+              </div>
+              <div className="flex items-center space-x-2 overflow-x-auto">
+                {selectedItems.map((item) => (
+                  <div key={item.id} className="flex items-center space-x-2 bg-gray-50 px-2 py-1.5 rounded-lg shrink-0">
+                    <img
+                      src={item.imageUrl}
+                      alt={item.name}
+                      className="w-8 h-8 object-cover rounded"
+                    />
+                    <div className="text-xs">
+                      <p className="font-semibold text-gray-900 truncate max-w-[80px]">{item.name}</p>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleItem(item);
+                      }}
+                      className="text-gray-500 hover:text-red-600 p-0.5"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <button
+              onClick={handleTryOn}
+              className="bg-black text-white px-4 sm:px-6 py-2.5 sm:py-3 rounded-lg font-semibold hover:bg-gray-800 transition-colors duration-200 text-sm sm:text-base whitespace-nowrap ml-3"
+            >
+              Try On
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Floating Action Buttons */}
       <div className="fixed bottom-16 sm:bottom-20 right-4 sm:right-6 flex flex-col space-y-2 sm:space-y-3">
@@ -764,8 +1051,168 @@ export default function Products() {
         </button>
       </div>
 
+      {/* Toast Notification */}
+      {toast.show && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-[60] animate-fade-in">
+          <div
+            className={`px-6 py-3 rounded-lg shadow-lg ${
+              toast.type === "success"
+                ? "bg-green-500 text-white"
+                : "bg-red-500 text-white"
+            }`}
+          >
+            <p className="font-medium">{toast.message}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Active Try-On Jobs Badge */}
+      {hasActiveJobs && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[55]">
+          <div className="bg-gradient-to-r from-blue-500 to-indigo-600 text-white px-5 py-3 rounded-2xl shadow-xl flex items-center gap-3 border border-white/20">
+            <div className="relative">
+              <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+                <Loader2 className="w-5 h-5 animate-spin" />
+              </div>
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full flex items-center justify-center text-[10px] font-bold text-yellow-900">
+                {activeJobCount}
+              </span>
+            </div>
+            <div className="text-left">
+              <p className="font-semibold text-sm">Creating your look...</p>
+              <p className="text-xs text-white/80">We'll notify you when ready</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Try-On Completed Notification - Full Screen Modal */}
+      {tryOnNotification.show && tryOnNotification.job && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 animate-fade-in">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={handleDismissNotification}
+          />
+          
+          {/* Modal Content */}
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-scale-up">
+            {/* Celebration Header */}
+            <div className="bg-gradient-to-br from-emerald-400 via-green-500 to-teal-500 px-6 py-5 text-center relative overflow-hidden">
+              {/* Decorative circles */}
+              <div className="absolute -top-4 -left-4 w-24 h-24 bg-white/10 rounded-full" />
+              <div className="absolute -bottom-6 -right-6 w-32 h-32 bg-white/10 rounded-full" />
+              
+              {/* Close button */}
+              <button
+                onClick={handleDismissNotification}
+                className="absolute top-4 right-4 w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors"
+              >
+                <X className="w-5 h-5 text-white" />
+              </button>
+              
+              {/* Success icon */}
+              <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-full mb-3 shadow-lg">
+                <CheckCircle className="w-10 h-10 text-emerald-500" />
+              </div>
+              
+              <h2 className="text-2xl font-bold text-white mb-1">
+                ✨ Your Look is Ready!
+              </h2>
+              <p className="text-white/90 text-sm">
+                Your virtual try-on has been generated
+              </p>
+            </div>
+            
+            {/* Preview Content */}
+            <div className="p-6">
+              {/* Large Preview Image */}
+              {tryOnNotification.job.resultImageUrl && (
+                <div className="mb-5 rounded-2xl overflow-hidden bg-gradient-to-b from-gray-100 to-gray-50 shadow-inner">
+                  <img
+                    src={tryOnNotification.job.resultImageUrl}
+                    alt="Try-on result"
+                    className="w-full h-72 object-contain"
+                  />
+                </div>
+              )}
+              
+              {/* Outfit Info Cards */}
+              {tryOnNotification.job.outfitInfo?.items && tryOnNotification.job.outfitInfo.items.length > 0 ? (
+                <div className="grid grid-cols-1 gap-3 mb-5">
+                  {tryOnNotification.job.outfitInfo.items.map((item: any, idx: number) => (
+                    <div key={idx} className="bg-gray-50 rounded-xl p-3 flex items-center gap-3">
+                      <img
+                        src={item.imageUrl}
+                        alt={item.name}
+                        className="w-14 h-14 object-cover rounded-lg"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900 text-sm truncate">
+                          {item.name}
+                        </p>
+                        {item.price && (
+                          <p className="text-sm text-emerald-600 font-semibold">
+                            ${item.price.toFixed(2)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : tryOnNotification.historyData?.garmentUrls && tryOnNotification.historyData.garmentUrls.length > 0 ? (
+                <div className="grid grid-cols-1 gap-3 mb-5">
+                  {tryOnNotification.historyData.garmentUrls.map((garmentUrl: string, idx: number) => (
+                    <div key={idx} className="bg-gray-50 rounded-xl p-3 flex items-center gap-3">
+                      <img
+                        src={garmentUrl}
+                        alt={`Garment ${idx + 1}`}
+                        className="w-14 h-14 object-cover rounded-lg"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-900 text-sm truncate">
+                          Item {idx + 1}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {/* Processing Time Badge */}
+              {tryOnNotification.job.processingTime && (
+                <div className="flex justify-center mb-5">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-full text-xs text-gray-600">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Processed in {(tryOnNotification.job.processingTime / 1000).toFixed(1)}s
+                  </span>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex flex-col gap-3">
+                <button
+                  onClick={handleViewTryOnResult}
+                  className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 text-white rounded-xl font-semibold text-lg hover:from-emerald-600 hover:to-teal-600 transition-all shadow-lg shadow-emerald-500/25 active:scale-[0.98]"
+                >
+                  View Full Result →
+                </button>
+                <button
+                  onClick={handleDismissNotification}
+                  className="w-full py-3 text-gray-500 hover:text-gray-700 font-medium transition-colors"
+                >
+                  Continue Shopping
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Try On Modal */}
-      {showTryOnModal && selectedProduct && (
+      {showTryOnModal && (
         <div className="fixed inset-0 backdrop-blur-md bg-black/30 flex items-center justify-center z-50 p-3 sm:p-4">
           <div className="bg-white rounded-2xl max-w-sm sm:max-w-md w-full p-4 sm:p-6 relative shadow-2xl">
             {/* Close Button */}
@@ -793,11 +1240,18 @@ export default function Products() {
             <div className="mb-4 sm:mb-6">
               <div className="text-center mb-3 sm:mb-4">
                 <p className="text-base sm:text-lg text-gray-600 mb-1 sm:mb-2">
-                  Your selfie with
+                  Your try-on with
                 </p>
                 <p className="text-lg sm:text-xl font-semibold text-gray-900">
-                  {selectedProduct.name}
+                  {selectedItems.length} item{selectedItems.length !== 1 ? 's' : ''}
                 </p>
+                <div className="text-sm text-gray-600 space-y-1 max-h-20 overflow-y-auto">
+                  {selectedItems.map((item) => (
+                    <p key={item.id}>
+                      {item.name} - ${item.price ? item.price.toFixed(2) : '0.00'}
+                    </p>
+                  ))}
+                </div>
               </div>
 
               {/* Product Image with Navigation / Try-On Result */}
@@ -842,53 +1296,9 @@ export default function Products() {
                     // Try-On Result Image
                     <img
                       src={tryOnImage}
-                      alt={`Try on result for ${selectedProduct.name}`}
-                      className="w-full h-full object-cover"
+                      alt="Try on result for your outfit"
+                      className="w-full h-full object-contain"
                     />
-                  ) : selectedProduct.allImages &&
-                    selectedProduct.allImages.length > 0 ? (
-                    <>
-                      <img
-                        src={selectedProduct.allImages[modalImageIndex]}
-                        alt={`${selectedProduct.name} - Image ${
-                          modalImageIndex + 1
-                        }`}
-                        className="w-full h-full object-cover"
-                      />
-
-                      {/* Navigation Buttons - Only show if multiple images and not showing try-on */}
-                      {selectedProduct.allImages.length > 1 && (
-                        <>
-                          <button
-                            onClick={handleModalPrevImage}
-                            className="absolute left-2 sm:left-3 top-1/2 transform -translate-y-1/2 p-2 sm:p-2.5 bg-white/90 rounded-full shadow-lg hover:bg-white transition-all duration-200"
-                          >
-                            <ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6 text-gray-800" />
-                          </button>
-                          <button
-                            onClick={handleModalNextImage}
-                            className="absolute right-2 sm:right-3 top-1/2 transform -translate-y-1/2 p-2 sm:p-2.5 bg-white/90 rounded-full shadow-lg hover:bg-white transition-all duration-200"
-                          >
-                            <ChevronRight className="w-5 h-5 sm:w-6 sm:h-6 text-gray-800" />
-                          </button>
-
-                          {/* Image Indicator Dots */}
-                          <div className="absolute bottom-3 left-1/2 transform -translate-x-1/2 flex space-x-2">
-                            {selectedProduct.allImages.map((_, index) => (
-                              <button
-                                key={index}
-                                onClick={() => setModalImageIndex(index)}
-                                className={`transition-all duration-200 rounded-full ${
-                                  index === modalImageIndex
-                                    ? "w-6 h-2 bg-white"
-                                    : "w-2 h-2 bg-white/60 hover:bg-white/80"
-                                }`}
-                              />
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </>
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
                       <div className="text-center text-gray-500">
@@ -906,7 +1316,7 @@ export default function Products() {
                           />
                         </svg>
                         <p className="text-xs sm:text-sm">
-                          Image will appear here
+                          Processing your outfit...
                         </p>
                       </div>
                     </div>
@@ -942,6 +1352,74 @@ export default function Products() {
                 className="text-gray-600 hover:text-gray-800 font-medium text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:text-gray-600"
               >
                 See Details
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Warning Modal */}
+      {showImageWarningModal && (
+        <div className="fixed inset-0 backdrop-blur-md bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 relative shadow-2xl">
+            {/* Close Button */}
+            <button
+              onClick={() => setShowImageWarningModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 z-10"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Warning Icon */}
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 bg-yellow-100 rounded-full flex items-center justify-center">
+                <svg
+                  className="w-8 h-8 text-yellow-600"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+              </div>
+            </div>
+
+            {/* Title */}
+            <h3 className="text-xl font-bold text-gray-900 text-center mb-2">
+              Photo Required
+            </h3>
+
+            {/* Description */}
+            <p className="text-center text-gray-600 mb-6">
+              To use virtual try-on, please upload a full-body photo of yourself. This helps us show you how clothes will look on you!
+            </p>
+
+            {/* Upload Section */}
+            <div className="mb-6">
+              <ImageUpload
+                onUploadSuccess={(imageUrl) => {
+                  setUserDefaultImage(imageUrl);
+                  setShowImageWarningModal(false);
+                  showToast("✅ Photo uploaded! You can now try on clothes.", "success");
+                }}
+              />
+            </div>
+
+            {/* Or Link to Settings */}
+            <div className="text-center">
+              <button
+                onClick={() => {
+                  setShowImageWarningModal(false);
+                  router.push("/profile?tab=settings");
+                }}
+                className="text-sm text-gray-600 hover:text-gray-900 underline"
+              >
+                Or upload later in Profile Settings
               </button>
             </div>
           </div>

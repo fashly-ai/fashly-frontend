@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import axios from "@/lib/axios";
+import UserImageGallery from "@/components/UserImageGallery";
 
 interface UserProfile {
   id: string;
@@ -41,20 +42,31 @@ interface UserProfile {
   updatedAt: string;
 }
 
-interface GlassProduct {
+interface ClothingProduct {
   id: string;
   name: string;
-  productUrl: string;
-  imageUrl: string;
-  allImages: string[];
   brand: string;
+  clothingType: string; // "upper" or "lower"
+  description: string;
+  price: number;
+  currency: string;
+  imageUrl: string;
+  thumbnailUrl: string | null;
+  additionalImages: string[] | null;
+  color: string;
+  sizes: string[];
+  material: string;
   category: string;
-  price: string;
-  availability: string | null;
+  season: string;
+  style: string;
+  tags: string[];
+  productUrl: string | null;
+  sku: string | null;
   isActive: boolean;
+  inStock: boolean;
+  isFavorite: boolean;
   createdAt: string;
   updatedAt: string;
-  isFavorite?: boolean;
 }
 
 interface Pagination {
@@ -68,25 +80,21 @@ interface Pagination {
 
 interface TryOnHistory {
   id: string;
-  glasses: GlassProduct;
+  clothing: ClothingProduct;
   createdAt: string;
   updatedAt: string;
 }
 
+// Saved try-on history from /api/fashn/history
 interface SavedTryOnHistory {
   id: string;
-  userId: string;
-  glassId: string;
-  glasses: GlassProduct;
-  prompt: string;
-  negativePrompt: string;
-  seed: number;
+  modelImageUrl: string;
+  upperGarmentUrl?: string;
+  lowerGarmentUrl?: string;
   resultImageUrl: string;
-  promptId: string;
-  filename: string;
+  predictionId: string;
   processingTime: number;
-  imageSize: number;
-  savedTryOn: boolean;
+  isSaved: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -94,9 +102,20 @@ interface SavedTryOnHistory {
 export default function Profile() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState("try-ons");
+  
+  // Handle tab from URL on mount (client-side only)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      if (tabParam === 'settings') {
+        setActiveTab('settings');
+      }
+    }
+  }, []);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [favorites, setFavorites] = useState<GlassProduct[]>([]);
+  const [favorites, setFavorites] = useState<ClothingProduct[]>([]);
   const [favoritesPagination, setFavoritesPagination] = useState<Pagination | null>(null);
   const [isFavoritesLoading, setIsFavoritesLoading] = useState(false);
   const [tryOnHistory, setTryOnHistory] = useState<TryOnHistory[]>([]);
@@ -109,7 +128,7 @@ export default function Profile() {
     [key: string]: number;
   }>({});
   const [showTryOnModal, setShowTryOnModal] = useState(false);
-  const [selectedGlass, setSelectedGlass] = useState<GlassProduct | null>(null);
+  const [selectedClothing, setSelectedClothing] = useState<ClothingProduct | null>(null);
   const [modalImageIndex, setModalImageIndex] = useState(0);
   const [isTryOnProcessing, setIsTryOnProcessing] = useState(false);
   const [tryOnImage, setTryOnImage] = useState<string | null>(null);
@@ -131,10 +150,12 @@ export default function Profile() {
 
     const fetchFavoritesCount = async () => {
       try {
-        const response = await axios.get('/api/glasses/favorites/my?page=1&limit=1');
+        const response = await axios.get('/api/clothes/favorites?page=1&limit=1');
         setFavoritesPagination(response.data.pagination);
       } catch (error) {
         console.error('Error fetching favorites count:', error);
+        // Set default pagination if API fails
+        setFavoritesPagination(null);
       }
     };
 
@@ -164,11 +185,12 @@ export default function Profile() {
   const fetchFavorites = async () => {
     setIsFavoritesLoading(true);
     try {
-      const response = await axios.get('/api/glasses/favorites/my?page=1&limit=50');
-      setFavorites(response.data.data);
+      const response = await axios.get('/api/clothes/favorites?page=1&limit=50');
+      setFavorites(response.data.data || []);
       setFavoritesPagination(response.data.pagination);
     } catch (error) {
       console.error('Error fetching favorites:', error);
+      setFavorites([]);
     } finally {
       setIsFavoritesLoading(false);
     }
@@ -190,24 +212,25 @@ export default function Profile() {
   const fetchSavedTryOns = async () => {
     setIsSavedTryOnsLoading(true);
     try {
-      const response = await axios.get('/api/glass-tryon-history?savedTryOn=true&page=1&limit=20');
-      setSavedTryOns(response.data.data);
+      const response = await axios.get('/api/fashn/history?isSaved=true&page=1&limit=20');
+      setSavedTryOns(response.data.data || []);
       setSavedTryOnsPagination(response.data.pagination);
     } catch (error) {
       console.error('Error fetching saved try-ons:', error);
+      setSavedTryOns([]);
     } finally {
       setIsSavedTryOnsLoading(false);
     }
   };
 
-  const handleToggleFavorite = async (glassesId: string) => {
+  const handleToggleFavorite = async (clothingId: string) => {
     try {
-      await axios.post('/api/glasses/favorites/toggle', {
-        glassesId: glassesId
+      await axios.post('/api/clothes/favorites/toggle', {
+        clothingId: clothingId
       });
       
       setFavorites(prevFavorites => 
-        prevFavorites.filter(fav => fav.id !== glassesId)
+        prevFavorites.filter(fav => fav.id !== clothingId)
       );
       
       setFavoritesPagination(prev => 
@@ -246,8 +269,13 @@ export default function Profile() {
     }));
   };
 
-  const handleTryAgain = async (glass: GlassProduct) => {
-    setSelectedGlass(glass);
+  const handleViewSavedTryOn = (item: SavedTryOnHistory) => {
+    // Navigate to the result page with history ID
+    router.push(`/try-on-result/${item.id}`);
+  };
+
+  const handleTryAgain = async (clothing: ClothingProduct) => {
+    setSelectedClothing(clothing);
     setModalImageIndex(0);
     setTryOnImage(null);
     setTryOnError(null);
@@ -256,10 +284,10 @@ export default function Profile() {
     setIsTryOnProcessing(true);
     
     try {
-      // Call ComfyUI API to process the glass
-      const response = await axios.post('/api/comfyui/process-glass', {
-        glassId: glass.id,
-        prompt: "person wearing stylish eyeglasses, professional portrait, clear face, natural lighting",
+      // Call ComfyUI API to process the clothing
+      const response = await axios.post('/api/comfyui/process-clothing', {
+        clothingId: clothing.id,
+        prompt: `person wearing ${clothing.name}, professional portrait, clear face, natural lighting`,
         negativePrompt: "blurry, low quality, distorted, cropped face, partial face",
         seed: 42
       });
@@ -274,9 +302,9 @@ export default function Profile() {
       // Save try-on to backend (old flow)
       try {
         await axios.post('/api/tryon/save', {
-          glassesId: glass.id
+          clothingId: clothing.id
         });
-        console.log(`Try on saved for ${glass.name}`);
+        console.log(`Try on saved for ${clothing.name}`);
       } catch (error) {
         console.error('Error saving try-on:', error);
       }
@@ -293,7 +321,7 @@ export default function Profile() {
 
   const handleCloseModal = () => {
     setShowTryOnModal(false);
-    setSelectedGlass(null);
+    setSelectedClothing(null);
     setModalImageIndex(0);
     setTryOnImage(null);
     setTryOnError(null);
@@ -309,7 +337,7 @@ export default function Profile() {
 
     setIsSavingLook(true);
     try {
-      await axios.put(`/api/glass-tryon-history/${tryOnHistoryId}/saved-status`, {
+      await axios.put(`/api/fashn/history/${tryOnHistoryId}/saved-status`, {
         savedTryOn: true
       });
       
@@ -330,25 +358,25 @@ export default function Profile() {
   };
 
   const handleModalNextImage = () => {
-    if (selectedGlass && selectedGlass.allImages) {
+    if (selectedClothing && selectedClothing.additionalImages) {
       setModalImageIndex(
-        (prev) => (prev + 1) % selectedGlass.allImages.length
+        (prev) => (prev + 1) % selectedClothing.additionalImages!.length
       );
     }
   };
 
   const handleModalPrevImage = () => {
-    if (selectedGlass && selectedGlass.allImages) {
+    if (selectedClothing && selectedClothing.additionalImages) {
       setModalImageIndex(
         (prev) =>
-          (prev - 1 + selectedGlass.allImages.length) %
-          selectedGlass.allImages.length
+          (prev - 1 + selectedClothing.additionalImages!.length) %
+          selectedClothing.additionalImages!.length
       );
     }
   };
 
   return (
-    <div className="bg-white pb-24">
+    <div className="bg-white pb-24 min-h-screen">
       {/* Header */}
       <div className="px-4 py-3 border-b border-gray-200">
         <div className="flex items-center justify-between">
@@ -380,33 +408,42 @@ export default function Profile() {
 
       {/* User Information */}
       <div className="px-4 py-4 text-center">
-        <div className="w-16 h-16 bg-gray-200 rounded-full mx-auto mb-3 flex items-center justify-center">
-          <svg
-            className="w-8 h-8 text-gray-500"
-            fill="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-          </svg>
+        <div className="w-16 h-16 bg-gray-200 rounded-full mx-auto mb-3 flex items-center justify-center overflow-hidden">
+          {profile?.profileImageUrl ? (
+            <img
+              src={profile.profileImageUrl}
+              alt={profile.fullName || profile.firstName || 'User'}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <svg
+              className="w-8 h-8 text-gray-500"
+              fill="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+            </svg>
+          )}
         </div>
         <h2 className="text-lg font-bold text-gray-900 mb-1">
           {profile?.fullName || profile?.firstName || 'User'}
         </h2>
         <p className="text-sm text-gray-600 mb-3">{profile?.email || 'user@example.com'}</p>
 
-          <div className="flex justify-center space-x-6">
+          <div className="flex justify-center space-x-8">
             <div className="text-center">
               <div className="text-xl font-bold text-gray-900">
                 {savedTryOnsPagination?.total || 0}
               </div>
               <div className="text-xs text-gray-600">Try-ons</div>
             </div>
-            <div className="text-center">
+            {/* Temporarily hidden - Liked count */}
+            {/* <div className="text-center">
               <div className="text-xl font-bold text-gray-900">
                 {favoritesPagination?.total || 0}
               </div>
               <div className="text-xs text-gray-600">Liked</div>
-            </div>
+            </div> */}
           <div className="text-center">
             <div className="text-xl font-bold text-gray-900">250</div>
             <div className="text-xs text-gray-600">Points</div>
@@ -439,7 +476,8 @@ export default function Profile() {
             </span>
           </button>
 
-          <button
+          {/* Temporarily hidden - Likes tab */}
+          {/* <button
             onClick={() => handleTabChange("likes")}
             className={`flex-1 flex flex-col items-center py-2 ${
               activeTab === "likes"
@@ -459,9 +497,10 @@ export default function Profile() {
             >
               Likes
             </span>
-          </button>
+          </button> */}
 
-          <button
+          {/* Temporarily hidden - Cart tab */}
+          {/* <button
             onClick={() => handleTabChange("cart")}
             className={`flex-1 flex flex-col items-center py-2 ${
               activeTab === "cart"
@@ -481,7 +520,7 @@ export default function Profile() {
             >
               Cart
             </span>
-          </button>
+          </button> */}
 
           <button
             onClick={() => handleTabChange("settings")}
@@ -523,35 +562,39 @@ export default function Profile() {
             ) : savedTryOns.length === 0 ? (
               <div className="text-center py-8 text-gray-500">No saved try-ons yet</div>
             ) : (
-              <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="grid grid-cols-3 gap-2 mb-4">
                 {savedTryOns.map((item) => {
-                  // Create array with try-on result first, then glass images
-                  const d45Image = item.glasses.allImages?.find(img => img.includes('D_45'));
-                  const glassDisplayImage = d45Image || item.glasses.allImages?.[0] || item.glasses.imageUrl;
-                  
+                  // Create array with try-on result first, then garment images
                   const availableImages = [
                     item.resultImageUrl, // Try-on result image first
-                    glassDisplayImage   // Glass product image second
-                  ].filter(Boolean);
+                    item.upperGarmentUrl, // Upper garment image
+                    item.lowerGarmentUrl  // Lower garment image
+                  ].filter(Boolean) as string[];
 
                   const currentIndex = savedTryOnImageIndex[item.id] || 0;
                   const displayImage = availableImages[currentIndex];
                   const hasMultipleImages = availableImages.length > 1;
                   
+                  // Format date
+                  const tryOnDate = new Date(item.createdAt).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric'
+                  });
+                  
                   return (
                     <div key={item.id} className="bg-white border border-gray-200 rounded-lg overflow-hidden">
                       <div className="relative group">
-                        <div className="aspect-[3/4] bg-gray-100 flex items-center justify-center overflow-hidden">
+                        <div className="aspect-[3/4] bg-gray-50 flex items-center justify-center overflow-hidden">
                           {displayImage ? (
                             <img 
                               src={displayImage} 
-                              alt={item.glasses.name}
-                              className="w-full h-full object-cover"
+                              alt="Try-on result"
+                              className="w-full h-full object-contain"
                             />
                           ) : (
                             <div className="text-center text-gray-500">
                               <svg
-                                className="w-6 h-6 mx-auto mb-1"
+                                className="w-5 h-5 mx-auto mb-1"
                                 fill="none"
                                 stroke="currentColor"
                                 viewBox="0 0 24 24"
@@ -569,7 +612,7 @@ export default function Profile() {
                                   d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
                                 />
                               </svg>
-                              <p className="text-xs">Try-on Photo</p>
+                              <p className="text-[10px]">Try-on</p>
                             </div>
                           )}
                         </div>
@@ -585,9 +628,9 @@ export default function Profile() {
                                   availableImages.length
                                 );
                               }}
-                              className="absolute left-1 sm:left-2 top-1/2 transform -translate-y-1/2 p-1 sm:p-1.5 bg-white/80 rounded-full shadow-sm hover:bg-white transition-all duration-200 opacity-0 group-hover:opacity-100"
+                              className="absolute left-0.5 top-1/2 transform -translate-y-1/2 p-0.5 bg-white/80 rounded-full shadow-sm hover:bg-white transition-all duration-200 opacity-0 group-hover:opacity-100"
                             >
-                              <ChevronLeft className="w-3 h-3 sm:w-4 sm:h-4 text-gray-800" />
+                              <ChevronLeft className="w-3 h-3 text-gray-800" />
                             </button>
                             <button
                               onClick={(e) => {
@@ -597,19 +640,19 @@ export default function Profile() {
                                   availableImages.length
                                 );
                               }}
-                              className="absolute right-1 sm:right-2 top-1/2 transform -translate-y-1/2 p-1 sm:p-1.5 bg-white/80 rounded-full shadow-sm hover:bg-white transition-all duration-200 opacity-0 group-hover:opacity-100"
+                              className="absolute right-0.5 top-1/2 transform -translate-y-1/2 p-0.5 bg-white/80 rounded-full shadow-sm hover:bg-white transition-all duration-200 opacity-0 group-hover:opacity-100"
                             >
-                              <ChevronRight className="w-3 h-3 sm:w-4 sm:h-4 text-gray-800" />
+                              <ChevronRight className="w-3 h-3 text-gray-800" />
                             </button>
 
                             {/* Image Indicator Dots */}
-                            <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex space-x-1">
+                            <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 flex space-x-0.5">
                               {availableImages.map((_, index) => (
                                 <div
                                   key={index}
-                                  className={`w-1.5 h-1.5 rounded-full transition-all duration-200 ${
+                                  className={`w-1 h-1 rounded-full transition-all duration-200 ${
                                     index === currentIndex
-                                      ? "bg-white w-3"
+                                      ? "bg-white w-2"
                                       : "bg-white/50"
                                   }`}
                                 />
@@ -619,21 +662,13 @@ export default function Profile() {
                         )}
                       </div>
                       <div className="p-2">
-                        <p className="text-xs text-gray-500 mb-1">{item.glasses.brand}</p>
-                        <p className="text-xs font-semibold text-gray-900 mb-2">
-                          {item.glasses.name}
-                        </p>
-                        <div className="flex space-x-1">
-                          <button className="flex-1 border border-gray-300 text-gray-700 py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-50">
-                            Share
-                          </button>
-                          <button 
-                            onClick={() => handleTryAgain(item.glasses)}
-                            className="flex-1 bg-gray-900 text-white py-1.5 px-2 rounded text-xs font-medium hover:bg-gray-800"
-                          >
-                            Try Again
-                          </button>
-                        </div>
+                        <p className="text-[10px] text-gray-500 truncate mb-1">{tryOnDate}</p>
+                        <button 
+                          onClick={() => handleViewSavedTryOn(item)}
+                          className="w-full bg-gray-900 text-white py-2 px-2 rounded-lg text-xs font-medium hover:bg-gray-800 transition-colors"
+                        >
+                          View
+                        </button>
                       </div>
                     </div>
                   );
@@ -643,23 +678,23 @@ export default function Profile() {
           </div>
         )}
 
-        {activeTab === "likes" && (
+        {/* Temporarily hidden - Likes content */}
+        {/* {activeTab === "likes" && (
           <div>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-base font-bold text-gray-900">
-                Liked Glasses {favoritesPagination && `(${favoritesPagination.total})`}
+                Liked Items {favoritesPagination && `(${favoritesPagination.total})`}
               </h3>
             </div>
             
             {isFavoritesLoading ? (
               <div className="text-center py-8 text-gray-500">Loading favorites...</div>
             ) : favorites.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">No liked glasses yet</div>
+              <div className="text-center py-8 text-gray-500">No liked items yet</div>
             ) : (
               <div className="space-y-3">
                 {favorites.map((item) => {
-                  const d45Image = item.allImages?.find(img => img.includes('D_45'));
-                  const displayImage = d45Image || item.allImages?.[0] || item.imageUrl;
+                  const displayImage = item.imageUrl;
                   
                   return (
                     <div key={item.id} className="bg-gray-50 rounded-lg p-3 flex items-center">
@@ -680,7 +715,8 @@ export default function Profile() {
                       <div className="flex-1">
                         <p className="text-xs text-gray-500 mb-1">{item.brand}</p>
                         <p className="text-sm font-semibold text-gray-900 mb-1">{item.name}</p>
-                        <p className="text-sm font-bold text-gray-900">{item.price}</p>
+                        <p className="text-xs text-gray-600 mb-1">{item.color} • {item.clothingType}</p>
+                        <p className="text-sm font-bold text-gray-900">${item.price.toFixed(2)}</p>
                       </div>
                       <div className="flex flex-col items-center space-y-3">
                         <button 
@@ -699,8 +735,9 @@ export default function Profile() {
               </div>
             )}
           </div>
-        )}
+        )} */}
 
+        {/* Temporarily hidden - Cart content 
         {activeTab === "cart" && (
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -711,7 +748,7 @@ export default function Profile() {
             </div>
             
             <div className="space-y-3 mb-6">
-              {/* Cart Item 1 */}
+              Cart Item 1
               <div className="bg-white border border-gray-200 rounded-lg p-3 flex items-center">
                 <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center mr-3">
                   <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -738,7 +775,7 @@ export default function Profile() {
                 </button>
               </div>
 
-              {/* Cart Item 2 */}
+              Cart Item 2
               <div className="bg-white border border-gray-200 rounded-lg p-3 flex items-center">
                 <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center mr-3">
                   <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -765,7 +802,7 @@ export default function Profile() {
                 </button>
               </div>
 
-              {/* Cart Item 3 */}
+              Cart Item 3
               <div className="bg-white border border-gray-200 rounded-lg p-3 flex items-center">
                 <div className="w-16 h-16 bg-gray-200 rounded-lg flex items-center justify-center mr-3">
                   <svg className="w-6 h-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -793,7 +830,7 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Order Summary */}
+            Order Summary
             <div className="bg-gray-50 rounded-lg p-4 mb-4">
               <div className="space-y-2">
                 <div className="flex justify-between text-sm">
@@ -811,13 +848,13 @@ export default function Profile() {
               </div>
             </div>
 
-            {/* Checkout Button */}
+            Checkout Button
             <button className="w-full bg-gray-900 text-white py-4 rounded-lg font-semibold flex items-center justify-center space-x-2 hover:bg-gray-800 transition-colors duration-200">
               <ShoppingCart className="w-5 h-5" />
               <span>Checkout</span>
             </button>
           </div>
-        )}
+        )} */}
 
         {activeTab === "settings" && (
           <div className="space-y-6">
@@ -833,21 +870,15 @@ export default function Profile() {
               </button>
             </div>
 
-            {/* Profile Photo Section */}
-            <div>
-              <h4 className="font-bold text-gray-900 mb-1">Profile Photo</h4>
-              <p className="text-sm text-gray-600 mb-3">Your photo enables virtual try-on experiences</p>
-              <div className="flex items-center space-x-3">
-                <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-gray-500" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
-                  </svg>
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">Not uploaded</p>
-                  <p className="text-sm text-gray-600">Upload a photo to enable virtual try-on features.</p>
-                </div>
-              </div>
+            {/* Profile Photo Section - Multi-Image Gallery */}
+            <div className="bg-gray-50 rounded-lg p-4">
+              <UserImageGallery
+                onDefaultImageChange={(imageUrl) => {
+                  // Update profile with new default image
+                  setProfile(prev => prev ? { ...prev, profileImageUrl: imageUrl } : null);
+                  console.log("Default image changed:", imageUrl);
+                }}
+              />
             </div>
 
             {/* Personal Information */}
@@ -948,14 +979,22 @@ export default function Profile() {
 
           {/* Profile - Right Half */}
           <button className="flex-1 flex flex-col items-center justify-center space-y-1 py-2">
-            <div className="w-6 h-6 bg-gray-100 rounded-full flex items-center justify-center">
-              <svg
-                className="w-4 h-4 text-gray-600"
-                fill="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-              </svg>
+            <div className="w-6 h-6 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden">
+              {profile?.profileImageUrl ? (
+                <img
+                  src={profile.profileImageUrl}
+                  alt="Profile"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <svg
+                  className="w-4 h-4 text-gray-600"
+                  fill="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+                </svg>
+              )}
             </div>
             <span className="text-xs font-semibold text-gray-900">Profile</span>
           </button>
@@ -968,7 +1007,7 @@ export default function Profile() {
       </button>
 
       {/* Try On Modal */}
-      {showTryOnModal && selectedGlass && (
+      {showTryOnModal && selectedClothing && (
         <div className="fixed inset-0 backdrop-blur-md bg-black/30 flex items-center justify-center z-50 p-3 sm:p-4">
           <div className="bg-white rounded-2xl max-w-sm sm:max-w-md w-full p-4 sm:p-6 relative shadow-2xl">
             {/* Close Button */}
@@ -996,10 +1035,10 @@ export default function Profile() {
             <div className="mb-4 sm:mb-6">
               <div className="text-center mb-3 sm:mb-4">
                 <p className="text-base sm:text-lg text-gray-600 mb-1 sm:mb-2">
-                  Your selfie with
+                  Your try-on with
                 </p>
                 <p className="text-lg sm:text-xl font-semibold text-gray-900">
-                  {selectedGlass.name}
+                  {selectedClothing.name}
                 </p>
               </div>
 
@@ -1043,22 +1082,22 @@ export default function Profile() {
                     // Try-On Result Image
                     <img
                       src={tryOnImage}
-                      alt={`Try on result for ${selectedGlass.name}`}
+                      alt={`Try on result for ${selectedClothing.name}`}
                       className="w-full h-full object-cover"
                     />
-                  ) : selectedGlass.allImages &&
-                    selectedGlass.allImages.length > 0 ? (
+                  ) : selectedClothing.additionalImages &&
+                    selectedClothing.additionalImages.length > 0 ? (
                     <>
                       <img
-                        src={selectedGlass.allImages[modalImageIndex]}
-                        alt={`${selectedGlass.name} - Image ${
+                        src={selectedClothing.additionalImages[modalImageIndex]}
+                        alt={`${selectedClothing.name} - Image ${
                           modalImageIndex + 1
                         }`}
                         className="w-full h-full object-cover"
                       />
 
                       {/* Navigation Buttons - Only show if multiple images and not showing try-on */}
-                      {selectedGlass.allImages.length > 1 && (
+                      {selectedClothing.additionalImages.length > 1 && (
                         <>
                           <button
                             onClick={handleModalPrevImage}
@@ -1075,7 +1114,7 @@ export default function Profile() {
 
                           {/* Image Indicator Dots */}
                           <div className="absolute bottom-3 left-1/2 transform -translate-x-1/2 flex space-x-2">
-                            {selectedGlass.allImages.map((_, index) => (
+                            {selectedClothing.additionalImages.map((_, index) => (
                               <button
                                 key={index}
                                 onClick={() => setModalImageIndex(index)}
@@ -1090,6 +1129,12 @@ export default function Profile() {
                         </>
                       )}
                     </>
+                  ) : selectedClothing.imageUrl ? (
+                    <img
+                      src={selectedClothing.imageUrl}
+                      alt={selectedClothing.name}
+                      className="w-full h-full object-cover"
+                    />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
                       <div className="text-center text-gray-500">
