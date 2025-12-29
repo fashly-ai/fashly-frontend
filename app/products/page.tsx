@@ -82,6 +82,9 @@ export default function Products() {
     null
   );
   const [showFilters, setShowFilters] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string | null>(null);
+  const [hoverTimeout, setHoverTimeout] = useState<NodeJS.Timeout | null>(null);
 
   // API state
   const [products, setProducts] = useState<ClothingProduct[]>([]);
@@ -236,6 +239,13 @@ export default function Products() {
     // Only fetch on initial load
     fetchProducts(1, false);
     fetchUserDefaultImage();
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (hoverTimeout) {
+        clearTimeout(hoverTimeout);
+      }
+    };
   }, []);
   
   const fetchUserDefaultImage = async () => {
@@ -254,7 +264,9 @@ export default function Products() {
   const fetchProducts = async (
     page: number,
     append: boolean = false,
-    search: string = ""
+    search: string = "",
+    category: string | null = null,
+    subcategory: string | null = null
   ) => {
     try {
       // Use different loading states for initial load vs pagination
@@ -265,8 +277,11 @@ export default function Products() {
       }
 
       const searchParam = search ? `&search=${encodeURIComponent(search)}` : "";
+      const categoryParam = category ? `&category=${encodeURIComponent(category)}` : "";
+      const subcategoryParam = subcategory ? `&subcategory=${encodeURIComponent(subcategory)}` : "";
+      console.log('Fetching products with:', { page, search, category, subcategory });
       const response = await axios.get(
-        `/api/clothes?sortBy=createdAt&sortOrder=DESC&page=${page}&limit=40${searchParam}`
+        `/api/clothes?sortBy=createdAt&sortOrder=DESC&page=${page}&limit=40${searchParam}${categoryParam}${subcategoryParam}`
       );
 
       if (append) {
@@ -501,7 +516,7 @@ export default function Products() {
   const handleLoadMore = async () => {
     if (pagination?.hasNext && !isLoadingMore) {
       const nextPage = currentPage + 1;
-      await fetchProducts(nextPage, true, searchQuery);
+      await fetchProducts(nextPage, true, searchQuery, selectedCategory, selectedSubcategory);
       setCurrentPage(nextPage);
     }
   };
@@ -530,13 +545,13 @@ export default function Products() {
 
   const handleSearch = () => {
     if (searchQuery.trim()) {
-      // Fetch products with search query
+      // Fetch products with search query, maintaining current filters
       setCurrentPage(1);
-      fetchProducts(1, false, searchQuery);
+      fetchProducts(1, false, searchQuery, selectedCategory, selectedSubcategory);
     } else {
-      // Reset to show all products
+      // Reset to show all products with current filters
       setCurrentPage(1);
-      fetchProducts(1, false);
+      fetchProducts(1, false, "", selectedCategory, selectedSubcategory);
     }
   };
 
@@ -544,14 +559,14 @@ export default function Products() {
     const value = e.target.value;
     setSearchQuery(value);
 
-    // Auto-search as user types (debounced by React's natural re-render)
+    // Auto-search as user types (debounced by React's natural re-render), maintaining filters
     if (value.trim()) {
       setCurrentPage(1);
-      fetchProducts(1, false, value);
+      fetchProducts(1, false, value, selectedCategory, selectedSubcategory);
     } else {
-      // If search is cleared, show all products
+      // If search is cleared, show all products with current filters
       setCurrentPage(1);
-      fetchProducts(1, false);
+      fetchProducts(1, false, "", selectedCategory, selectedSubcategory);
     }
   };
 
@@ -559,9 +574,9 @@ export default function Products() {
     setShowSearch(!showSearch);
     if (showSearch) {
       setSearchQuery("");
-      // Reset to show all products
+      // Reset to show all products with current filters
       setCurrentPage(1);
-      fetchProducts(1, false);
+      fetchProducts(1, false, "", selectedCategory, selectedSubcategory);
     }
   };
 
@@ -574,6 +589,70 @@ export default function Products() {
     setShowFilters(!showFilters);
     setActiveDropdown(null); // Close any open dropdowns when toggling filters
   };
+
+  const handleCategorySelect = (category: string, subcategory: string | null = null) => {
+    console.log('Category selected:', category, 'Subcategory:', subcategory);
+    setSelectedCategory(category);
+    setSelectedSubcategory(subcategory);
+    setCurrentPage(1);
+    fetchProducts(1, false, searchQuery, category, subcategory);
+    setShowFilters(false); // Close dropdown after selection
+  };
+
+  const handleClearFilters = () => {
+    setSelectedCategory(null);
+    setSelectedSubcategory(null);
+    setCurrentPage(1);
+    fetchProducts(1, false, searchQuery);
+  };
+
+  const handleMouseEnterMenu = () => {
+    if (hoverTimeout) {
+      clearTimeout(hoverTimeout);
+      setHoverTimeout(null);
+    }
+    setShowFilters(true);
+  };
+
+  const handleMouseLeaveMenu = () => {
+    const timeout = setTimeout(() => {
+      setShowFilters(false);
+    }, 200); // 200ms delay before closing
+    setHoverTimeout(timeout);
+  };
+
+  // Filter categories data
+  const shopByProductCategories = [
+    "Coats & Jackets",
+    "Jumpsuits & Playsuits",
+    "Dresses",
+    "Loungewear",
+    "Sequin Edit",
+    "Hoodies & Sweatshirts",
+    "Waistcoats",
+    "New In",
+    "Shirts",
+    "Jumpers & Cardigans",
+    "Shorts & Skirts",
+    "Essentials",
+    "Skirts",
+    "Tops",
+    "Top Rated Clothing",
+    "Suits & Tailoring",
+    "Blouses",
+    "Activewear",
+    "Shorts",
+    "Jeans",
+  ];
+
+  const shopPartywearCategories = [
+    { name: "Essentials", icon: "🎉" },
+    { name: "Sequin edit", icon: "✨" },
+    { name: "Dresses", icon: "👗" },
+    { name: "Tops", icon: "👕" },
+    { name: "Shorts & Skirts", icon: "🩳" },
+    { name: "Shoes & Accessories", icon: "👠" },
+  ];
 
   // Mock data for dropdowns
   const clothingStyles = [
@@ -612,204 +691,285 @@ export default function Products() {
 
   return (
     <div className="min-h-screen bg-white">
-      {/* Header */}
-      <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-gray-200">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center">
-            <button
-              onClick={() => router.back()}
-              className="mr-2 sm:mr-3 p-1 hover:bg-gray-100 rounded-full"
-            >
-              <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5 text-gray-900" />
-            </button>
-            <h1 className="text-base sm:text-lg font-bold text-gray-900">
-              Clothing Categories
-            </h1>
-          </div>
-          <div className="flex items-center space-x-2 sm:space-x-3 relative">
-            {showSearch ? (
-              <div className="relative">
-                <div className="flex items-center bg-white rounded-lg shadow-sm">
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={handleInputChange}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        handleSearch();
-                      } else if (e.key === "Escape") {
-                        handleSearchToggle();
-                      }
-                    }}
-                    placeholder="Search clothing..."
-                    className="flex-1 px-3 sm:px-4 py-2 sm:py-3 border-0 focus:ring-0 focus:outline-none text-gray-900 placeholder-gray-500 rounded-l-lg text-sm sm:text-base"
-                    autoFocus
-                  />
-                  <button
-                    onClick={handleSearch}
-                    className="p-2 sm:p-3 text-gray-600 hover:text-gray-800 hover:bg-gray-50 rounded-r-lg transition-colors duration-200"
-                  >
-                    <Search className="w-4 h-4 sm:w-5 sm:h-5" />
-                  </button>
-                </div>
-              </div>
-            ) : (
+      {/* Top Navigation Bar - ASOS Style */}
+      <div className="sticky top-0 z-50 bg-white border-b border-gray-200 shadow-sm">
+        {/* Top Bar - Logo, Search, Icons */}
+        <div className="px-6 py-3 flex items-center justify-between gap-6">
+          {/* Logo/Brand */}
+          <button
+            onClick={() => router.push('/')}
+            className="text-2xl font-bold text-gray-900 hover:opacity-80 transition-opacity"
+          >
+            Fashly
+          </button>
+
+          {/* Search Bar */}
+          <div className="flex-1 max-w-2xl">
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={handleInputChange}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    handleSearch();
+                  }
+                }}
+                placeholder="Search for items and brands"
+                className="w-full px-4 py-2.5 pr-10 bg-gray-100 border-0 rounded-full text-sm text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-300 focus:bg-white transition-all"
+              />
               <button
-                onClick={handleSearchToggle}
-                className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-full transition-colors duration-200"
+                onClick={handleSearch}
+                className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
               >
-                <Search className="w-5 h-5 sm:w-6 sm:h-6 text-gray-600" />
+                <Search className="w-5 h-5" />
               </button>
-            )}
+            </div>
+          </div>
+
+          {/* Icons */}
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={() => router.push('/profile')}
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              title="Profile"
+            >
+              <User className="w-5 h-5 text-gray-700" />
+            </button>
+            <button
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              title="Wishlist"
+            >
+              <Heart className="w-5 h-5 text-gray-700" />
+            </button>
+            <button
+              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              title="Help"
+            >
+              <HelpCircle className="w-5 h-5 text-gray-700" />
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Category Navigation */}
-      <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-gray-200">
-        <div className="flex space-x-4 sm:space-x-6 mb-4 sm:mb-6 overflow-x-auto">
-          <button
-            onClick={() => handleCategoryChange("All")}
-            className={`font-medium pb-2 transition-colors duration-200 whitespace-nowrap text-sm sm:text-base ${
-              activeCategory === "All"
-                ? "text-blue-600 border-b-2 border-blue-600"
-                : "text-gray-600 hover:text-gray-800"
-            }`}
-          >
-            All
-          </button>
-          <button
-            onClick={() => handleCategoryChange("upper")}
-            className={`font-medium pb-2 transition-colors duration-200 whitespace-nowrap text-sm sm:text-base ${
-              activeCategory === "upper"
-                ? "text-blue-600 border-b-2 border-blue-600"
-                : "text-gray-600 hover:text-gray-800"
-            }`}
-          >
-            Upper Body
-          </button>
-          <button
-            onClick={() => handleCategoryChange("lower")}
-            className={`font-medium pb-2 transition-colors duration-200 whitespace-nowrap text-sm sm:text-base ${
-              activeCategory === "lower"
-                ? "text-blue-600 border-b-2 border-blue-600"
-                : "text-gray-600 hover:text-gray-800"
-            }`}
-          >
-            Lower Body
-          </button>
-        </div>
-      </div>
-
-      {/* Filters Section */}
-      <div className="px-4 sm:px-6 py-4 border-b border-gray-200">
-        <div>
-          {/* Filters Toggle Button */}
-          <button
-            onClick={handleFilterToggle}
-            className="flex items-center space-x-2 mb-4 hover:bg-gray-50 px-2 py-1 rounded-lg transition-colors duration-200"
-          >
-            <Filter className="w-4 h-4 text-gray-600" />
-            <span className="text-sm font-medium text-gray-900">Filters</span>
-            <ChevronDown
-              className={`w-4 h-4 text-gray-600 transition-transform duration-200 ${
-                showFilters ? "rotate-180" : ""
-              }`}
-            />
-          </button>
-
-          {/* Filter Buttons - Conditionally Shown */}
-          {showFilters && (
-            <div className="flex flex-col sm:flex-row gap-3">
-              {/* Style Dropdown */}
-              <div className="relative flex-1">
-                <button
-                  onClick={() => handleDropdownToggle("style")}
-                  className="w-full flex items-center justify-between px-4 py-3 border border-gray-300 rounded-lg text-sm font-medium text-gray-800 hover:bg-gray-50"
-                >
-                  <span>Style</span>
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-                {activeDropdown === "style" && (
-                  <div className="absolute top-full left-0 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg z-10">
-                    {clothingStyles.map((style) => (
-                      <button
-                        key={style}
-                        onClick={() => {
-                          console.log(`Selected style: ${style}`);
-                          setActiveDropdown(null);
-                        }}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg capitalize"
-                      >
-                        {style}
-                      </button>
-                    ))}
-                  </div>
+      {/* Secondary Navigation Bar - Category Menu */}
+      <div className="sticky top-[64px] z-40 border-b border-gray-200 bg-white shadow-sm">
+        <div className="px-6">
+          <div className="flex items-center space-x-6 relative">
+            {/* Clothing - Main Menu with Mega Dropdown */}
+            <div
+              className="relative"
+              onMouseEnter={handleMouseEnterMenu}
+              onMouseLeave={handleMouseLeaveMenu}
+            >
+              <button
+                className={`py-3.5 text-sm font-semibold transition-colors whitespace-nowrap relative ${
+                  selectedCategory
+                    ? "text-gray-900"
+                    : "text-gray-700 hover:text-gray-900"
+                }`}
+              >
+                Clothing
+                {selectedCategory && (
+                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-gray-900"></div>
                 )}
-              </div>
+              </button>
 
-              {/* Price Dropdown */}
-              <div className="relative flex-1">
-                <button
-                  onClick={() => handleDropdownToggle("price")}
-                  className="w-full flex items-center justify-between px-4 py-3 border border-gray-300 rounded-lg text-sm font-medium text-gray-800 hover:bg-gray-50"
-                >
-                  <span>Price</span>
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-                {activeDropdown === "price" && (
-                  <div className="absolute top-full left-0 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg z-10">
-                    {priceRanges.map((range) => (
-                      <button
-                        key={range}
-                        onClick={() => {
-                          console.log(`Selected price range: ${range}`);
-                          setActiveDropdown(null);
-                        }}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg"
-                      >
-                        {range}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              {/* Mega Menu Dropdown */}
+              {showFilters && (
+                <>
+                  {/* Backdrop - covers everything below nav */}
+                  <div 
+                    className="fixed inset-0 top-[112px] bg-black/40 z-[60]"
+                    onMouseEnter={handleMouseEnterMenu}
+                    onMouseLeave={handleMouseLeaveMenu}
+                  ></div>
+                  
+                  {/* Menu */}
+                  <div 
+                    className="fixed left-0 right-0 top-[112px] z-[70] bg-white border-t border-gray-200 shadow-2xl"
+                    onMouseEnter={handleMouseEnterMenu}
+                    onMouseLeave={handleMouseLeaveMenu}
+                  >
+                    <div className="max-w-6xl mx-auto px-6 py-6">
+                    <div className="grid grid-cols-2 gap-12">
+                      {/* Shop by Product Section */}
+                      <div>
+                        <h3 className="text-xs font-bold text-gray-900 mb-3 uppercase tracking-wider">
+                          Shop by Product
+                        </h3>
+                        <div className="grid grid-cols-2 gap-x-8 gap-y-1.5">
+                          {shopByProductCategories.map((category) => (
+                            <button
+                              key={category}
+                              onClick={() => handleCategorySelect(category)}
+                              className={`text-left text-xs py-1 transition-all ${
+                                selectedCategory === category && !selectedSubcategory
+                                  ? "text-gray-900 font-semibold"
+                                  : "text-gray-600 hover:text-gray-900 hover:translate-x-0.5"
+                              }`}
+                            >
+                              {category}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
 
-              {/* Sort Dropdown */}
-              <div className="relative flex-1">
-                <button
-                  onClick={() => handleDropdownToggle("sort")}
-                  className="w-full flex items-center justify-between px-4 py-3 border border-gray-300 rounded-lg text-sm font-medium text-gray-800 hover:bg-gray-50"
-                >
-                  <span>Most Popular</span>
-                  <ChevronDown className="w-4 h-4" />
-                </button>
-                {activeDropdown === "sort" && (
-                  <div className="absolute top-full right-0 mt-1 w-full bg-white border border-gray-300 rounded-lg shadow-lg z-10">
-                    {sortOptions.map((option) => (
-                      <button
-                        key={option}
-                        onClick={() => {
-                          console.log(`Selected sort option: ${option}`);
-                          setActiveDropdown(null);
-                        }}
-                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 first:rounded-t-lg last:rounded-b-lg"
-                      >
-                        {option}
-                      </button>
-                    ))}
+                      {/* Shop Partywear Section */}
+                      <div>
+                        <h3 className="text-xs font-bold text-gray-900 mb-3 uppercase tracking-wider">
+                          Shop Partywear
+                        </h3>
+                        <div className="space-y-2">
+                          {shopPartywearCategories.map((item) => (
+                            <button
+                              key={item.name}
+                              onClick={() => handleCategorySelect(item.name, "Partywear")}
+                              className={`flex items-center space-x-3 w-full text-xs transition-all group ${
+                                selectedCategory === item.name && selectedSubcategory === "Partywear"
+                                  ? "text-gray-900 font-semibold"
+                                  : "text-gray-600 hover:text-gray-900 hover:translate-x-0.5"
+                              }`}
+                            >
+                              <div className="w-10 h-10 rounded-full overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center flex-shrink-0 group-hover:from-gray-100 group-hover:to-gray-200 transition-all">
+                                <span className="text-lg">{item.icon}</span>
+                              </div>
+                              <span className="font-medium">{item.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    </div>
                   </div>
-                )}
+                </>
+              )}
+            </div>
+
+            {/* Face + Body - Disabled */}
+            <div className="relative group">
+              <button
+                disabled
+                className="py-3.5 text-sm font-semibold text-gray-400 cursor-not-allowed whitespace-nowrap"
+              >
+                Face + Body
+              </button>
+              {/* Coming Soon Tooltip */}
+              <div className="absolute left-1/2 transform -translate-x-1/2 top-full mt-2 px-5 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50 shadow-lg">
+                Coming Soon
+                <div className="absolute left-1/2 transform -translate-x-1/2 -top-1.5 w-3 h-3 bg-gray-900 rotate-45"></div>
               </div>
             </div>
-          )}
+
+            {/* Shoes - Disabled */}
+            <div className="relative group">
+              <button
+                disabled
+                className="py-3.5 text-sm font-semibold text-gray-400 cursor-not-allowed whitespace-nowrap"
+              >
+                Shoes
+              </button>
+              {/* Coming Soon Tooltip */}
+              <div className="absolute left-1/2 transform -translate-x-1/2 top-full mt-2 px-5 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50 shadow-lg">
+                Coming Soon
+                <div className="absolute left-1/2 transform -translate-x-1/2 -top-1.5 w-3 h-3 bg-gray-900 rotate-45"></div>
+              </div>
+            </div>
+
+            {/* Accessories - Disabled */}
+            <div className="relative group">
+              <button
+                disabled
+                className="py-3.5 text-sm font-semibold text-gray-400 cursor-not-allowed whitespace-nowrap"
+              >
+                Accessories
+              </button>
+              {/* Coming Soon Tooltip */}
+              <div className="absolute left-1/2 transform -translate-x-1/2 top-full mt-2 px-5 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50 shadow-lg">
+                Coming Soon
+                <div className="absolute left-1/2 transform -translate-x-1/2 -top-1.5 w-3 h-3 bg-gray-900 rotate-45"></div>
+              </div>
+            </div>
+
+            {/* Brands - Disabled */}
+            <div className="relative group">
+              <button
+                disabled
+                className="py-3.5 text-sm font-semibold text-gray-400 cursor-not-allowed whitespace-nowrap"
+              >
+                Brands
+              </button>
+              {/* Coming Soon Tooltip */}
+              <div className="absolute left-1/2 transform -translate-x-1/2 top-full mt-2 px-5 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50 shadow-lg">
+                Coming Soon
+                <div className="absolute left-1/2 transform -translate-x-1/2 -top-1.5 w-3 h-3 bg-gray-900 rotate-45"></div>
+              </div>
+            </div>
+
+            {/* Sale - Disabled but highlighted */}
+            <div className="relative group">
+              <button
+                disabled
+                className="py-3.5 text-sm font-bold text-gray-400 cursor-not-allowed whitespace-nowrap"
+              >
+                Sale
+              </button>
+              {/* Coming Soon Tooltip */}
+              <div className="absolute left-1/2 transform -translate-x-1/2 top-full mt-2 px-5 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-50 shadow-lg">
+                Coming Soon
+                <div className="absolute left-1/2 transform -translate-x-1/2 -top-1.5 w-3 h-3 bg-gray-900 rotate-45"></div>
+              </div>
+            </div>
+          </div>
         </div>
+
+        {/* Active Filters Chip Bar */}
+        {(selectedCategory || selectedSubcategory) && (
+          <div className="px-6 py-2.5 flex items-center gap-2 flex-wrap bg-gray-50 border-t border-gray-200">
+            <span className="text-xs text-gray-500">Active:</span>
+            {selectedCategory && (
+              <span className="inline-flex items-center px-3 py-1 bg-white border border-gray-300 text-gray-700 text-xs rounded-full">
+                {selectedCategory}
+                <button
+                  onClick={() => {
+                    setSelectedCategory(null);
+                    setSelectedSubcategory(null);
+                    fetchProducts(1, false, searchQuery);
+                  }}
+                  className="ml-1.5 text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            {selectedSubcategory && (
+              <span className="inline-flex items-center px-3 py-1 bg-white border border-gray-300 text-gray-700 text-xs rounded-full">
+                {selectedSubcategory}
+                <button
+                  onClick={() => {
+                    setSelectedSubcategory(null);
+                    fetchProducts(1, false, searchQuery, selectedCategory, null);
+                  }}
+                  className="ml-1.5 text-gray-400 hover:text-gray-600"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
+            <button
+              onClick={handleClearFilters}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium ml-1"
+            >
+              Clear all
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Recently Tried Section */}
 
       {/* Product Grid */}
-      <div className="px-4 sm:px-6 pb-20 sm:pb-24">
+      <div className="px-4 sm:px-6 pt-6 sm:pt-8 pb-20 sm:pb-24">
         {isLoading ? (
           <div className="flex justify-center items-center py-12">
             <div className="text-gray-500">Loading products...</div>
@@ -835,14 +995,14 @@ export default function Products() {
                     className="bg-white border border-gray-200 rounded-lg overflow-hidden animate-slide-up hover:shadow-lg transition-shadow duration-200"
                   >
                     <div className="relative group">
-                      <div className="aspect-[2/3] bg-gray-100 flex items-center justify-center overflow-hidden relative">
+                      <div className="aspect-[2/3] bg-white flex items-center justify-center overflow-hidden relative">
                         {displayImage ? (
                           <>
                             <img
                               key={displayImage}
                               src={displayImage}
                               alt={product.name}
-                              className="w-full h-full object-contain transition-opacity duration-150"
+                              className="w-full h-full object-cover transition-opacity duration-150"
                               loading="eager"
                               onLoad={(e) => {
                                 // Preload adjacent images when current image loads
