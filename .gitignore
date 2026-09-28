@@ -39,3 +39,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Secrets: never commit these (see .githooks/pre-commit)
+.env
+.env.*
+!.env.example
+gcp-key*.json
+*service-account*.json
+*.pem
+id_rsa*
+id_ed25519*

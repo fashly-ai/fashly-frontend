@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
-    "start": "next start"
+    "start": "next start",
+    "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {
     "axios": "^1.12.2",

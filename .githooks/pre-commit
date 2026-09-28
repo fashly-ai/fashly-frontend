@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Blocks commits that add API keys, tokens or private keys.
+# Install once per clone:  git config core.hooksPath .githooks
+# Bypass only for a verified false positive:  git commit --no-verify
+set -euo pipefail
+
+names=(  "FASHN API key" "Hugging Face token" "RunPod API key" "Anthropic/OpenAI key" "GitHub token" "AWS access key" "private key" "GCP service-account key")
+patterns=(
+  'fa-[A-Za-z0-9]{8,16}-[A-Za-z0-9]{15,40}'
+  'hf_[A-Za-z0-9]{30,}'
+  'rpa_[A-Za-z0-9]{30,}'
+  'sk-(ant-|proj-)?[A-Za-z0-9_-]{30,}'
+  'gh[pousr]_[A-Za-z0-9]{36,}'
+  'AKIA[0-9A-Z]{16}'
+  '-----BEGIN [A-Z ]*PRIVATE KEY-----'
+  '"private_key_id"[[:space:]]*:'
+)
+
+found=0
+# Check each staged file's added lines; report file and key type only, never the value.
+while IFS= read -r f; do
+  added=$(git diff --cached -U0 --no-color -- "$f" | grep -E '^\+[^+]' || true)
+  [ -z "$added" ] && continue
+  for i in "${!patterns[@]}"; do
+    if printf '%s\n' "$added" | grep -qE -e "${patterns[$i]}"; then
+      echo "  $f: ${names[$i]}" >&2
+      found=1
+    fi
+  done
+done < <(git diff --cached --name-only --diff-filter=AM -- . ':(exclude).githooks/pre-commit')
+
+# Refuse obvious secret files outright.
+if git diff --cached --name-only --diff-filter=A | grep -E '(^|/)(\.env(\..*)?|gcp-key.*\.json|.*service-account.*\.json|.*\.pem|id_(rsa|ed25519))$' | grep -vE '\.env\.example$|env\.example$'; then
+  found=1
+  echo "  ^ secret-looking file names" >&2
+fi
+
+if [ "$found" = 1 ]; then
+  echo "pre-commit: possible secret in staged changes (listed above). Move it to an environment variable or .env (git-ignored)." >&2
+  exit 1
+fi
