@@ -1101,9 +1101,11 @@ export default function Products() {
                         {product.brand}
                       </p>
                       <div className="flex justify-between items-center mt-1">
-                        <span className="font-bold text-gray-900 text-xs sm:text-sm">
-                          ${product.price ? product.price.toFixed(2) : '0.00'}
-                        </span>
+                        {product.price != null && (
+                          <span className="font-bold text-gray-900 text-xs sm:text-sm">
+                            ${Number(product.price).toFixed(2)}
+                          </span>
+                        )}
                       </div>
                       {selectedItems.some((item) => item.id === product.id) ? (
                         <button
@@ -1407,7 +1409,7 @@ export default function Products() {
                 <div className="text-sm text-gray-600 space-y-1 max-h-20 overflow-y-auto">
                   {selectedItems.map((item) => (
                     <p key={item.id}>
-                      {item.name} - ${item.price ? item.price.toFixed(2) : '0.00'}
+                      {item.name}{item.price != null ? ` - $${Number(item.price).toFixed(2)}` : ''}
                     </p>
                   ))}
                 </div>

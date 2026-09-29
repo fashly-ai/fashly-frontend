@@ -724,7 +724,9 @@ export default function Profile() {
                         <p className="text-xs text-gray-500 mb-1">{item.brand}</p>
                         <p className="text-sm font-semibold text-gray-900 mb-1">{item.name}</p>
                         <p className="text-xs text-gray-600 mb-1">{item.color} • {item.clothingType}</p>
-                        <p className="text-sm font-bold text-gray-900">${item.price.toFixed(2)}</p>
+                        {item.price != null && (
+                          <p className="text-sm font-bold text-gray-900">${Number(item.price).toFixed(2)}</p>
+                        )}
                       </div>
                       <div className="flex flex-col items-center space-y-3">
                         <button 
