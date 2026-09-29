@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import axios from "@/lib/axios";
+import { formatPrice } from "@/lib/commerce";
 import UserImageGallery from "@/components/UserImageGallery";
 
 interface UserProfile {
@@ -725,7 +726,7 @@ export default function Profile() {
                         <p className="text-sm font-semibold text-gray-900 mb-1">{item.name}</p>
                         <p className="text-xs text-gray-600 mb-1">{item.color} • {item.clothingType}</p>
                         {item.price != null && (
-                          <p className="text-sm font-bold text-gray-900">${Number(item.price).toFixed(2)}</p>
+                          <p className="text-sm font-bold text-gray-900">{formatPrice(item.price, item.currency)}</p>
                         )}
                       </div>
                       <div className="flex flex-col items-center space-y-3">

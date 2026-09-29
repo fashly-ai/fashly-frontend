@@ -16,8 +16,9 @@ import {
   CheckCircle,
   X,
 } from "lucide-react";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "@/lib/axios";
+import { AFFILIATE_DISCLOSURE, buyHref, formatPrice, merchantLabel } from "@/lib/commerce";
 import { useTryOnSocket, TryOnJobUpdate, TryOnJob } from "@/lib/useTryOnSocket";
 import ImageUpload from "@/components/ImageUpload";
 
@@ -59,6 +60,11 @@ interface ClothingProduct {
   isActive: boolean;
   inStock: boolean;
   isFavorite: boolean;
+  merchant?: string | null;
+  salePrice?: number | null;
+  tryonEligible?: boolean;
+  buyPath?: string | null;
+  isAffiliate?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -126,12 +132,16 @@ export default function Products() {
     historyData: TryOnHistoryData | null;
   }>({ show: false, job: null, historyData: null });
 
+  // Latest tracked jobs, read by the completion handler below (a useCallback with no deps would only ever see
+  // the first, empty map, so the result popup lost the item names, prices and Buy links).
+  const activeJobsRef = useRef<Map<string, TryOnJob>>(new Map());
+
   // Handle try-on job completed - fetch full history data
   const handleJobCompleted = useCallback(async (data: TryOnJobUpdate) => {
     console.log("🎉 Try-on completed!", data);
     
     // Get outfit info from active jobs before it's removed
-    const outfitInfo = activeJobs.get(data.jobId)?.outfitInfo;
+    const outfitInfo = activeJobsRef.current.get(data.jobId)?.outfitInfo;
     
     // Store history ID for viewing
     if (data.historyId) {
@@ -234,6 +244,7 @@ export default function Products() {
     onJobCompleted: handleJobCompleted,
     onJobFailed: handleJobFailed,
   });
+  activeJobsRef.current = activeJobs;
 
   useEffect(() => {
     // Only fetch on initial load
@@ -350,8 +361,12 @@ export default function Products() {
     // Store outfit info for later (for display in notifications)
     const outfitInfo = {
       items: selectedItems.map((item, idx) => ({
+        id: item.id,
         name: item.name,
-        price: item.price ?? undefined,
+        price: item.salePrice ?? item.price ?? undefined,
+        currency: item.currency,
+        merchant: item.merchant ?? undefined,
+        buyPath: item.buyPath ?? undefined,
         imageUrl: garmentUrls[idx],
       })),
     };
@@ -985,7 +1000,9 @@ export default function Products() {
                 ].filter(Boolean);
 
                 const currentIndex = currentImageIndex[product.id] || 0;
-                const displayImage = availableImages[currentIndex];
+                // Cards show the small thumbnail for the main image; the try-on still uses the full image.
+                const displayImage =
+                  currentIndex === 0 && product.thumbnailUrl ? product.thumbnailUrl : availableImages[currentIndex];
                 const hasMultipleImages = availableImages.length > 1;
 
                 return (
@@ -1002,7 +1019,18 @@ export default function Products() {
                               src={displayImage}
                               alt={product.name}
                               className="w-full h-full object-cover transition-opacity duration-150"
-                              loading="eager"
+                              loading={productIndex < 10 ? "eager" : "lazy"}
+                              onError={(e) => {
+                                // Store CDNs sometimes refuse a thumbnail or throttle bursts: retry the full image once,
+                                // then hide the image (the card keeps its white background) instead of showing alt text.
+                                const img = e.currentTarget;
+                                if (img.dataset.retried !== "1" && product.imageUrl && img.src !== product.imageUrl) {
+                                  img.dataset.retried = "1";
+                                  img.src = product.imageUrl;
+                                } else {
+                                  img.style.visibility = "hidden";
+                                }
+                              }}
                               onLoad={(e) => {
                                 // Preload adjacent images when current image loads
                                 const nextIdx = (currentIndex + 1) % availableImages.length;
@@ -1098,16 +1126,39 @@ export default function Products() {
                         {product.name}
                       </h3>
                       <p className="text-[10px] sm:text-xs text-gray-600 truncate">
-                        {product.brand}
+                        {product.merchant ? `at ${merchantLabel(product.merchant)}` : product.brand}
                       </p>
-                      <div className="flex justify-between items-center mt-1">
-                        {product.price != null && (
-                          <span className="font-bold text-gray-900 text-xs sm:text-sm">
-                            ${Number(product.price).toFixed(2)}
-                          </span>
+                      <div className="flex items-baseline gap-1.5 mt-1">
+                        {product.salePrice != null ? (
+                          <>
+                            <span className="font-bold text-red-600 text-xs sm:text-sm">
+                              {formatPrice(product.salePrice, product.currency)}
+                            </span>
+                            <span className="text-[10px] text-gray-400 line-through">
+                              {formatPrice(product.price, product.currency)}
+                            </span>
+                          </>
+                        ) : (
+                          product.price != null && (
+                            <span className="font-bold text-gray-900 text-xs sm:text-sm">
+                              {formatPrice(product.price, product.currency)}
+                            </span>
+                          )
                         )}
                       </div>
-                      {selectedItems.some((item) => item.id === product.id) ? (
+                      {product.buyPath && (
+                        <a
+                          href={buyHref(product.buyPath, { surface: "product" })}
+                          target="_blank"
+                          rel="sponsored nofollow noopener"
+                          className="block w-full mt-1.5 sm:mt-2 text-center border border-gray-900 text-gray-900 py-1.5 sm:py-2 rounded-md font-medium hover:bg-gray-100 transition-colors duration-200 text-[10px] sm:text-xs"
+                        >
+                          Buy{product.merchant ? ` on ${merchantLabel(product.merchant)}` : ""}
+                        </a>
+                      )}
+                      {product.tryonEligible === false ? (
+                        <p className="mt-1.5 text-center text-[10px] text-gray-400">Try-on not available for this photo</p>
+                      ) : selectedItems.some((item) => item.id === product.id) ? (
                         <button
                           onClick={() => handleToggleItem(product)}
                           className="w-full mt-1.5 sm:mt-2 bg-gray-800 text-white py-1.5 sm:py-2 rounded-md font-medium hover:bg-gray-700 transition-colors duration-200 text-[10px] sm:text-xs"
@@ -1127,6 +1178,8 @@ export default function Products() {
                 );
               })}
             </div>
+
+            <p className="mt-4 text-center text-[11px] text-gray-500">{AFFILIATE_DISCLOSURE}</p>
 
             {/* Load More Button */}
             {pagination?.hasNext && (
@@ -1312,12 +1365,25 @@ export default function Products() {
                         <p className="font-medium text-gray-900 text-sm truncate">
                           {item.name}
                         </p>
-                        {item.price && (
+                        {item.price != null && (
                           <p className="text-sm text-emerald-600 font-semibold">
-                            ${item.price.toFixed(2)}
+                            {formatPrice(item.price, item.currency)}
                           </p>
                         )}
                       </div>
+                      {item.buyPath && (
+                        <a
+                          href={buyHref(item.buyPath, {
+                            surface: "tryon_result",
+                            tryonId: tryOnNotification.job?.historyId ?? tryOnNotification.job?.jobId,
+                          })}
+                          target="_blank"
+                          rel="sponsored nofollow noopener"
+                          className="shrink-0 bg-black text-white text-xs font-semibold px-3 py-2 rounded-lg hover:bg-gray-800"
+                        >
+                          Buy{item.merchant ? ` on ${merchantLabel(item.merchant)}` : ""}
+                        </a>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1409,7 +1475,7 @@ export default function Products() {
                 <div className="text-sm text-gray-600 space-y-1 max-h-20 overflow-y-auto">
                   {selectedItems.map((item) => (
                     <p key={item.id}>
-                      {item.name}{item.price != null ? ` - $${Number(item.price).toFixed(2)}` : ''}
+                      {item.name}{item.price != null ? ` - ${formatPrice(item.salePrice ?? item.price, item.currency)}` : ''}
                     </p>
                   ))}
                 </div>
