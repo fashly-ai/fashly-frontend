@@ -225,9 +225,8 @@ export default function Profile() {
 
   const handleToggleFavorite = async (clothingId: string) => {
     try {
-      await axios.post('/api/clothes/favorites/toggle', {
-        clothingId: clothingId
-      });
+      // Items in this list are favorites, so this removes one
+      await axios.post(`/api/clothes/${clothingId}/favorite`, { isFavorite: false });
       
       setFavorites(prevFavorites => 
         prevFavorites.filter(fav => fav.id !== clothingId)
@@ -284,19 +283,28 @@ export default function Profile() {
     setIsTryOnProcessing(true);
     
     try {
-      // Call ComfyUI API to process the clothing
-      const response = await axios.post('/api/comfyui/process-clothing', {
-        clothingId: clothing.id,
-        prompt: `person wearing ${clothing.name}, professional portrait, clear face, natural lighting`,
-        negativePrompt: "blurry, low quality, distorted, cropped face, partial face",
-        seed: 42
+      // Same try-on queue as the products page; the backend uses the user's default photo
+      const { data: queued } = await axios.post('/api/fashn/tryon/queue', {
+        garmentUrls: [clothing.imageUrl],
+        category: "auto",
+        mode: "quality",
+        saveToHistory: true,
       });
 
-      if (response.data.resultImageUrl) {
-        setTryOnImage(response.data.resultImageUrl);
-        setTryOnHistoryId(response.data.id);
+      // Poll the job until it finishes (usually 15-40 s)
+      const deadline = Date.now() + 3 * 60 * 1000;
+      let job = queued;
+      while (job.status !== 'completed' && job.status !== 'failed') {
+        if (Date.now() > deadline) throw new Error("The try-on is taking longer than usual. Please try again.");
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        job = (await axios.get(`/api/fashn/jobs/${queued.jobId}`)).data;
+      }
+
+      if (job.status === 'completed' && job.resultImageUrl) {
+        setTryOnImage(job.resultImageUrl);
+        setTryOnHistoryId(job.historyId ?? null);
       } else {
-        setTryOnError("Failed to generate try-on image");
+        setTryOnError(job.errorMessage || "Failed to generate try-on image");
       }
 
       // Save try-on to backend (old flow)
@@ -313,7 +321,7 @@ export default function Profile() {
       fetchSavedTryOns();
     } catch (error: any) {
       console.error('Error processing try-on:', error);
-      setTryOnError(error.response?.data?.message || "Failed to process try-on. Please try again.");
+      setTryOnError(error.response?.data?.message || error.message || "Failed to process try-on. Please try again.");
     } finally {
       setIsTryOnProcessing(false);
     }
@@ -337,8 +345,8 @@ export default function Profile() {
 
     setIsSavingLook(true);
     try {
-      await axios.put(`/api/fashn/history/${tryOnHistoryId}/saved-status`, {
-        savedTryOn: true
+      await axios.patch(`/api/fashn/history/${tryOnHistoryId}/saved`, {
+        isSaved: true
       });
       
       // Show success feedback

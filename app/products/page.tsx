@@ -491,10 +491,9 @@ export default function Products() {
 
   const handleToggleFavorite = async (clothingId: string, index: number) => {
     try {
-      // Call the API first
-      await axios.post("/api/clothes/favorites/toggle", {
-        clothingId: clothingId,
-      });
+      // Call the API first; the endpoint sets the state explicitly, so send the new value
+      const isFavorite = !products[index]?.isFavorite;
+      await axios.post(`/api/clothes/${clothingId}/favorite`, { isFavorite });
 
       // Update UI only after successful API call
       setProducts((prevProducts) =>
