@@ -714,7 +714,7 @@ export default function Products() {
             onClick={() => router.push('/')}
             className="text-2xl font-bold text-gray-900 hover:opacity-80 transition-opacity"
           >
-            Fashly
+            Macgi
           </button>
 
           {/* Search Bar */}

@@ -167,7 +167,7 @@ export default function SignUp() {
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-70px)] sm:min-h-[calc(100vh-80px)] px-4 sm:px-6 lg:px-8">
         {/* Welcome Heading */}
         <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 mb-3 sm:mb-4 text-center">
-          Welcome to Fashly
+          Welcome to Macgi
         </h2>
 
         {/* Subtitle */}

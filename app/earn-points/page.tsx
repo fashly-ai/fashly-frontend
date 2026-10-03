@@ -46,7 +46,7 @@ export default function EarnPoints() {
             Profile created successfully!
           </h2>
           <p className="text-sm sm:text-base lg:text-lg text-gray-600">
-            Share Fashly with your friends to earn points and unlock exclusive
+            Share Macgi with your friends to earn points and unlock exclusive
             features.
           </p>
         </div>

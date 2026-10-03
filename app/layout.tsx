@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Fashly - Stop guessing, start fitting",
-  description: "The ultimate fashion fitting experience. Stop guessing, start fitting with Fashly.",
+  title: "Macgi - Stop guessing, start fitting",
+  description: "The ultimate fashion fitting experience. Stop guessing, start fitting with Macgi.",
 };
 
 export default function RootLayout({
